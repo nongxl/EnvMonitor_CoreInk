@@ -107,6 +107,16 @@ static void drawDashedHLine(int x, int y, int w, int onLen, int offLen, uint16_t
     }
 }
 
+// 绘制垂直虚线 (1px 黑虚线)
+static void drawDashedVLine(int x, int y, int h, int onLen, int offLen, uint16_t color) {
+    int cycle = onLen + offLen;
+    for (int i = 0; i < h; ++i) {
+        if ((i % cycle) < onLen) {
+            s_sprite.drawPixel(x, y + i, color);
+        }
+    }
+}
+
 // 绘制两点间虚线 (1px 黑虚线)
 static void drawDashedLine(int x0, int y0, int x1, int y1, int onLen, int offLen, uint16_t color) {
     int dx = abs(x1 - x0);
@@ -241,23 +251,23 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 3. Center Dual-Curve Chart (Y: 48 ~ 146 px) 历史趋势 (纯白底黑线，支持缩放/平移)
     // ==========================================
-    // 采用与页面温湿度严格对齐的双刻度对称布局：左侧温度刻度 (-20°C~40°C)，右侧湿度刻度 (20%~80%)
-    const int chartLeft = 38;
-    const int chartRight = 172;
+    // 去除纵轴单位充分拓宽图表至 154px：左侧实线温度轴 (-20~40)，右侧虚线湿度轴 (20~80)
+    const int chartLeft = 24;
+    const int chartRight = 178;
     const int chartTop = 52;
     const int chartBottom = 128; // 压缩折线图高度，为下方时间刻度文字留出充足呼吸空间
-    const int chartW = chartRight - chartLeft; // 134 px
+    const int chartW = chartRight - chartLeft; // 154 px (比原先增加 20px)
     const int chartH = chartBottom - chartTop; // 76 px
 
-    // 坐标轴框线 (左 Y 轴、右 Y 轴、底 X 轴)
+    // 坐标轴框线 (左 Y 轴实线、右 Y 轴虚线呼应湿度、底 X 轴实线)
     s_sprite.drawFastVLine(chartLeft, chartTop, chartH, TFT_BLACK);
-    s_sprite.drawFastVLine(chartRight, chartTop, chartH, TFT_BLACK);
+    drawDashedVLine(chartRight, chartTop, chartH, 2, 2, TFT_BLACK);
     s_sprite.drawFastHLine(chartLeft, chartBottom, chartW, TFT_BLACK);
 
     // 标尺设定：双刻度大跨度全天候模式 (跨度均为 60)
-    // 温度：-20°C ~ 40°C (跨度 60°C) -> 对应左 Y 轴
-    // 湿度：20% ~ 80% (跨度 60%)     -> 对应右 Y 轴
-    // 黄金基准线：对应 25°C (占比 75%) 与雪茄目标 65% RH
+    // 温度：-20 ~ 40 (跨度 60) -> 对应左 Y 轴 (实线)
+    // 湿度：20 ~ 80 (跨度 60)  -> 对应右 Y 轴 (虚线)
+    // 黄金基准线：对应 25 (占比 75%) 与雪茄目标 65 RH
     const float tempMin = -20.0f, tempMax = 40.0f;
     const float humiMin = 20.0f, humiMax = 80.0f;
     const float humiTarget = 65.0f;
@@ -265,33 +275,30 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     int targetY = chartBottom - (int)((humiTarget - humiMin) / (humiMax - humiMin) * chartH);
     drawDashedHLine(chartLeft, targetY, chartW, 2, 2, TFT_BLACK);
 
-    // 辅助 lambda：绘制左侧带度数小圆圈的温度刻度 (数字右对齐于 X:24，圆圈居 X:26，C 居 X:29)
+    // 辅助 lambda：绘制左侧纯数字温度刻度 (无单位，右对齐于 chartLeft - 3)
     auto drawLeftTempTick = [&](int y, const char *numStr) {
         s_sprite.setTextSize(1);
         int nw = s_sprite.textWidth(numStr, &fonts::AsciiFont8x16);
         if (nw <= 0) nw = strlen(numStr) * 8;
-        int numX = 24 - nw;
+        int numX = (chartLeft - 3) - nw;
         s_sprite.drawString(numX, y, numStr);
-        // 精致小度数圆圈 (半径 1px) + 大写 C
-        s_sprite.drawCircle(26, y + 3, 1, TFT_BLACK);
-        s_sprite.drawString(29, y, "C");
     };
 
-    // 左侧刻度文字：温度 (-20°C ~ 40°C)
+    // 左侧刻度文字：温度 (-20 ~ 40 纯数字)
     drawLeftTempTick(chartTop - 2, "40");
     drawLeftTempTick(targetY - 4, "25");
     drawLeftTempTick(chartBottom - 6, "-20");
 
-    // 右侧刻度文字：湿度 (20% ~ 80%，黑字白底 X: 174)
+    // 右侧刻度文字：湿度 (20 ~ 80 纯数字，黑字白底)
     s_sprite.setTextSize(1);
-    s_sprite.drawString(174, chartTop - 2, "80%");
-    s_sprite.drawString(174, targetY - 4, "65%");
-    s_sprite.drawString(174, chartBottom - 6, "20%");
+    s_sprite.drawString(chartRight + 4, chartTop - 2, "80");
+    s_sprite.drawString(chartRight + 4, targetY - 4, "65");
+    s_sprite.drawString(chartRight + 4, chartBottom - 6, "20");
 
-    // 右上角图例 (黑字白底：T.. 温度虚线，H- 湿度实线)
-    s_sprite.drawString(130, chartTop + 2, "T..H-");
+    // 右上角图例 (黑字白底：T- 温度实线，H.. 湿度虚线)
+    s_sprite.drawString(chartRight - 44, chartTop + 2, "T- H..");
 
-    // 顶部模式与当前视窗状态标签 (X: 29)
+    // 顶部模式与当前视窗状态标签
     char modeTag[32];
     if (s_chartMode == CHART_MODE_ZOOM) {
         snprintf(modeTag, sizeof(modeTag), "[ZOOM:%s]", ZOOM_LEVELS[s_zoomIdx].name);
@@ -304,7 +311,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             snprintf(modeTag, sizeof(modeTag), "[PAN:-%.1fh]", (float)s_panOffsetSec / 3600.0f);
         }
     }
-    s_sprite.drawString(29, chartTop + 2, modeTag);
+    s_sprite.drawString(chartLeft + 4, chartTop + 2, modeTag);
 
     // 计算当前时间视窗 [windowStart, windowEnd]
     uint32_t nowSec = getSystemTimestamp();
@@ -360,7 +367,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
         return chartLeft + (int)((float)(ts - windowStart) / (float)(windowEnd - windowStart) * chartW);
     };
 
-    // 绘制温湿度连续折线
+    // 绘制温湿度连续折线：温度用粗实线 (2px)，湿度用细虚线 (1px)
     for (int i = 0; i < count; ++i) {
         int x = mapTimeX(chartPoints[i].timestamp);
         int yH = mapHumiY(chartPoints[i].humi);
@@ -371,11 +378,11 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             int prevYH = mapHumiY(chartPoints[i - 1].humi);
             int prevYT = mapTempY(chartPoints[i - 1].temp);
 
-            // 湿度：黑色粗实线 (2px)
-            drawThickLine(prevX, prevYH, x, yH, 2, TFT_BLACK);
+            // 温度：黑色粗实线 (2px)
+            drawThickLine(prevX, prevYT, x, yT, 2, TFT_BLACK);
 
-            // 温度：黑色细虚线 (1px)
-            drawDashedLine(prevX, prevYT, x, yT, 3, 2, TFT_BLACK);
+            // 湿度：黑色细虚线 (1px)
+            drawDashedLine(prevX, prevYH, x, yH, 3, 2, TFT_BLACK);
         }
     }
 
