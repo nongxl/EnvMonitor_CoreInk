@@ -129,6 +129,7 @@ void setup() {
     if (!isWakeFromSleep) {
         renderSplashScreen("Connecting Wi-Fi...");
         syncNtpTime(8000);
+        delay(600); // 确保开机画面物理电荷泵驱动彻底沉淀，防止与仪表盘帧冲突
     } else {
         Serial.printf("[RTC Boot] Woke from deep sleep (cause=%d), skipping Wi-Fi NTP.\n", (int)wakeCause);
     }
