@@ -248,6 +248,10 @@ void loop() {
         }
     }
 
+    // 顶部拨轮 G38 (BtnMID) 状态变量
+    static uint32_t s_midPressStart = 0;
+    static bool s_midHandledLong = false;
+
     // 选单开启时的专属导航逻辑 (UP/DOWN 选择，MID 确认)
     if (isPowerMenuOpen()) {
         if (M5.BtnUP.wasPressed()) {
@@ -258,6 +262,8 @@ void loop() {
         }
         if (M5.BtnMID.wasPressed()) {
             powerMenuHandleConfirm();
+            s_midPressStart = millis();
+            s_midHandledLong = true; // 标记本次按下已由选单确认消费，按键释放时不触发图表切换
             char tStr[32];
             getTimeString(tStr, sizeof(tStr));
             EnvRecord rec = isSensorReady() ? getLatestEnvRecord() : EnvRecord();
@@ -270,15 +276,13 @@ void loop() {
     // 选单未打开时：常规仪表盘滚轮按键交互
     // 顶部拨轮 G38 (BtnMID)：
     // - 在 Mode 4 (On-Demand) 下：长按 G38 (>= 1秒) 触发单次即时采样并全刷上屏
-    // - 其他模式下：长按 2 秒关机；短按单击切换【缩放 / 平移】操作
-    static uint32_t s_midPressStart = 0;
-    static bool s_midHandledLong = false;
+    // - 短按单击切换【缩放 ZOOM / 平移 PAN】操作（注意：关机专属 G27 电源键双击，拨轮绝不误关机！）
     if (M5.BtnMID.wasPressed()) {
         s_midPressStart = millis();
         s_midHandledLong = false;
     }
     if (M5.BtnMID.isPressed()) {
-        if (!s_midHandledLong) {
+        if (!s_midHandledLong && s_midPressStart > 0) {
             if (getPowerMode() == PWR_MODE_MANUAL && (millis() - s_midPressStart >= 1000)) {
                 s_midHandledLong = true;
                 Serial.println("[Manual] G38 long-press -> Triggering on-demand sample...");
@@ -289,16 +293,11 @@ void loop() {
                     getTimeString(tStr, sizeof(tStr));
                     renderCurrentPage(manualRec, tStr, false);
                 }
-            } else if (getPowerMode() != PWR_MODE_MANUAL && (millis() - s_midPressStart >= 2000)) {
-                s_midHandledLong = true;
-                Serial.println("[UI] Button MID long-pressed -> Powering off...");
-                powerOffDevice();
-                return;
             }
         }
     }
     if (M5.BtnMID.wasReleased()) {
-        if (!s_midHandledLong && (millis() - s_midPressStart < 1000)) {
+        if (!s_midHandledLong && s_midPressStart > 0 && (millis() - s_midPressStart < 1000)) {
             chartToggleMode();
             Serial.printf("[Chart] G38 pressed -> Mode toggled to: %s\n",
                           (chartGetMode() == CHART_MODE_ZOOM) ? "ZOOM" : "PAN");
@@ -307,6 +306,8 @@ void loop() {
             EnvRecord rec = isSensorReady() ? getLatestEnvRecord() : EnvRecord();
             renderCurrentPage(rec, tStr, false);
         }
+        s_midPressStart = 0;
+        s_midHandledLong = false;
     }
 
     // 按键 G37 (UP)：ZOOM 模式下放大；PAN 模式下向左平移
