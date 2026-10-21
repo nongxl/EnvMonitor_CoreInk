@@ -165,18 +165,24 @@ static void drawStatusBar(const char *timeStr) {
 
     int batPct = getBatteryPercentage();
     char batPctStr[16];
-    snprintf(batPctStr, sizeof(batPctStr), "%d", batPct); // 去除百分比符号
+    snprintf(batPctStr, sizeof(batPctStr), "%d", batPct); // 纯数字无百分号
 
-    // 电量图标：缩短三分之一 (42 -> 28px)，加高 2px (12 -> 14px)
-    const int batX = 168;
-    const int batY = 1;
-    const int batW = 28;
-    const int batH = 14;
-    s_sprite.drawRect(batX, batY, batW, batH, TFT_BLACK);
-    s_sprite.fillRect(196, 4, 2, 8, TFT_BLACK); // 电池正极端子
+    // 电池图标：整体向左移避开物理黑边 (右端留 10px 边距，主体 X:162~188，端子 188~190)
+    const int batW = 26;
+    const int batH = 12;
+    const int batX = 188 - batW; // 162
+    const int batY = 2;          // 上下各留 2px 优雅呼吸间距
+
+    // 先用透明背景绘制文字，上下各留 2px 间隙绝不遮挡边线
+    s_sprite.setTextColor(TFT_BLACK);
     int txtW = s_sprite.textWidth(batPctStr);
     int txtX = batX + (batW - txtW) / 2;
-    s_sprite.drawString(txtX, 0, batPctStr); // 数值向上移动 2px (2 -> 0)
+    int txtY = batY + 2; // Y: 4 (文字高 8px，占据 Y:4~12，上下各有 2px 留白)
+    s_sprite.drawString(txtX, txtY, batPctStr);
+
+    // 后绘制电池外框与端子，确保线型 100% 连续锐利不被抹平
+    s_sprite.drawRect(batX, batY, batW, batH, TFT_BLACK);
+    s_sprite.fillRect(batX + batW, batY + 3, 2, 6, TFT_BLACK); // 端子居中高 6px (Y: 5~11)
 
     // 状态栏底部分割细线
     s_sprite.drawFastHLine(0, 16, 200, TFT_BLACK);
