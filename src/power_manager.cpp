@@ -124,17 +124,14 @@ void executePowerSleep(bool hasRenderedData) {
             break;
 
         case PWR_MODE_BALANCED: {
-            // 1. 电纸书级连续操作活跃窗口：在用户按键或滚轮操作后的 350ms 内保持全速运转
+            // 1. 电纸书级连续操作活跃窗口：在用户按键或滚轮操作后的 400ms 内保持全速运转
             //    保证快速连拨滚轮或连按按键时手感极致跟手、零丢步
-            if (millis() - s_lastUserActionMs < 350) {
+            if (millis() - s_lastUserActionMs < 400) {
                 delay(15);
                 break;
             }
 
-            // 2. 空闲无按键操作时，立即切断墨水屏高压偏置电源 (功耗降为 0)
-            M5.M5Ink.powerHVOFF();
-
-            // 3. 电纸书级纯硬件外部中断 Light-Sleep：
+            // 2. 电纸书级纯硬件外部中断 Light-Sleep：
             //    所有按键配置为硬件低电平唤醒源 (GPIO 5, 27, 37, 38, 39)
             //    用户触碰/拨动任意键的瞬间，硬件中断 1ms 内瞬间唤醒 CPU，零感知延迟！
             gpio_wakeup_enable((gpio_num_t)5,  GPIO_INTR_LOW_LEVEL);
@@ -144,7 +141,7 @@ void executePowerSleep(bool hasRenderedData) {
             gpio_wakeup_enable((gpio_num_t)39, GPIO_INTR_LOW_LEVEL);
             esp_sleep_enable_gpio_wakeup();
 
-            // 4. 定时低频唤醒 (3秒周期)：与 BSEC 传感器低频采样节拍同步，整机 99% 的时间挂起在浅睡眠中
+            // 3. 定时低频唤醒 (3秒周期)：与 BSEC 传感器低频采样节拍同步，整机 99% 的时间挂起在浅睡眠中
             esp_sleep_enable_timer_wakeup(3ULL * 1000000ULL);
 
             esp_light_sleep_start();
@@ -152,21 +149,23 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_ECO: {
-            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 保持全速运转响应界面交互
-            if (millis() - s_lastUserActionMs < 30000 && !hasRenderedData) {
+            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 必须保持清醒响应操作！
+            if (millis() - s_lastUserActionMs < 30000) {
                 delay(20);
                 break;
             }
 
-            // 无操作超过 30 秒，或新数据已渲染完毕，立即进入 10 分钟 Deep-Sleep
+            // 无操作超过 30 秒，立即进入 10 分钟 Deep-Sleep
             Serial.println("[Power] Eco Mode: Entering 10-min Deep Sleep...");
             saveBsecState();
             flushStorageToNVS();
 
-            // 彻底关闭外设与高压，熄灭绿色指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
+            // 等待墨水屏最后一次刷屏动作物理完成，彻底防止画面冻结
+            delay(400);
+
+            // 彻底关闭外设，熄灭绿色指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);
-            M5.M5Ink.powerHVOFF();
             M5.M5Ink.deepSleep();
 
             // 锁存电源引脚 (GPIO 12)，防止休眠期间切断电池供电
@@ -185,8 +184,8 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_MANUAL: {
-            // 用户操作活跃期内保持响应
-            if (millis() - s_lastUserActionMs < 30000 && !hasRenderedData) {
+            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 必须保持清醒响应操作！
+            if (millis() - s_lastUserActionMs < 30000) {
                 delay(20);
                 break;
             }
@@ -195,9 +194,11 @@ void executePowerSleep(bool hasRenderedData) {
             saveBsecState();
             flushStorageToNVS();
 
+            // 等待墨水屏最后一次刷屏动作物理完成
+            delay(400);
+
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);
-            M5.M5Ink.powerHVOFF();
             M5.M5Ink.deepSleep();
 
             pinMode(12, OUTPUT);

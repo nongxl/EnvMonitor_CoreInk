@@ -184,12 +184,14 @@ void setup() {
     // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
     initPowerManager();
 
-    // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时休眠唤醒下获得有效数据，直接进入下一轮睡眠
+    // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时器静默周期唤醒下：
+    // 数据刷新完毕后，延时等待墨水屏刷屏完成，安然进入下一轮休眠
     if (isTimerWake && (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
         Serial.println("[Eco] Periodic timer sample rendered smoothly. Returning to Deep Sleep immediately.");
+        delay(400);
         executePowerSleep(true);
-    } else if (isButtonWake) {
-        // 用户按键主动唤醒：刷新活跃窗口，支持 30 秒内顺畅翻页与查看
+    } else {
+        // 冷启动开机或用户按键唤醒：刷新活跃窗口，支持 30 秒内顺畅翻页与查看
         notifyUserActivity();
     }
 }
