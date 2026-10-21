@@ -241,12 +241,12 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 3. Center Dual-Curve Chart (Y: 48 ~ 146 px) 历史趋势 (纯白底黑线，支持缩放/平移)
     // ==========================================
-    // 采用双刻度对称布局：左侧湿度刻度 (30%~80%)，右侧温度刻度 (10°~35°C)
+    // 采用双刻度对称布局：左侧湿度刻度 (20%~80%)，右侧温度刻度 (-20°C~40°C)
     const int chartLeft = 28;
-    const int chartRight = 172;
+    const int chartRight = 166;
     const int chartTop = 52;
     const int chartBottom = 128; // 压缩折线图高度，为下方时间刻度文字留出充足呼吸空间
-    const int chartW = chartRight - chartLeft; // 144 px
+    const int chartW = chartRight - chartLeft; // 138 px
     const int chartH = chartBottom - chartTop; // 76 px
 
     // 坐标轴框线 (左 Y 轴、右 Y 轴、底 X 轴)
@@ -254,12 +254,12 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     s_sprite.drawFastVLine(chartRight, chartTop, chartH, TFT_BLACK);
     s_sprite.drawFastHLine(chartLeft, chartBottom, chartW, TFT_BLACK);
 
-    // 标尺设定：双刻度对应
-    // 湿度：30% ~ 80% (涵盖室内干燥 30%~50% 与雪茄 65%~75%)
-    // 温度：10°C ~ 35°C (涵盖常温与夏冬环境)
-    // 雪茄目标基准线 65% RH (对应约 27.5°C)
-    const float humiMin = 30.0f, humiMax = 80.0f;
-    const float tempMin = 10.0f, tempMax = 35.0f;
+    // 标尺设定：双刻度大跨度全天候模式 (跨度均为 60)
+    // 湿度：20% ~ 80% (跨度 60%)
+    // 温度：-20°C ~ 40°C (跨度 60°C)
+    // 雪茄黄金目标线 65% RH (占比 75%，完美对应 25°C 常温标准线)
+    const float humiMin = 20.0f, humiMax = 80.0f;
+    const float tempMin = -20.0f, tempMax = 40.0f;
     const float humiTarget = 65.0f;
 
     int targetY = chartBottom - (int)((humiTarget - humiMin) / (humiMax - humiMin) * chartH);
@@ -269,15 +269,15 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     s_sprite.setTextSize(1);
     s_sprite.drawString(2, chartTop - 2, "80%");
     s_sprite.drawString(2, targetY - 4, "65%");
-    s_sprite.drawString(2, chartBottom - 6, "30%");
+    s_sprite.drawString(2, chartBottom - 6, "20%");
 
-    // 右侧刻度文字：温度 (黑字白底 X: 175)
-    s_sprite.drawString(175, chartTop - 2, "35C");
-    s_sprite.drawString(175, targetY - 4, "28C");
-    s_sprite.drawString(175, chartBottom - 6, "10C");
+    // 右侧刻度文字：温度 (黑字白底)
+    s_sprite.drawString(170, chartTop - 2, "40C");
+    s_sprite.drawString(170, targetY - 4, "25C");
+    s_sprite.drawString(168, chartBottom - 6, "-20C");
 
     // 右上角图例 (黑字白底：T.. 温度虚线，H- 湿度实线)
-    s_sprite.drawString(130, chartTop + 2, "T..H-");
+    s_sprite.drawString(124, chartTop + 2, "T..H-");
 
     // 顶部模式与当前视窗状态标签 (X: 29)
     char modeTag[32];
