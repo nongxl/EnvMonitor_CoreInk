@@ -162,12 +162,45 @@ void initDashboard() {
     s_sprite.clear();
 }
 
+static bool s_isSleeping = false;
+
+void setSleepIndicator(bool sleeping) {
+    s_isSleeping = sleeping;
+}
+
+bool getSleepIndicator() {
+    return s_isSleeping;
+}
+
+void showSleepIndicator(bool sleeping) {
+    s_isSleeping = sleeping;
+    char timeStr[32];
+    RTC_TimeTypeDef t;
+    RTC_DateTypeDef d;
+    M5.rtc.GetTime(&t);
+    M5.rtc.GetDate(&d);
+    snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d", d.Year, d.Month, d.Date, t.Hours, t.Minutes);
+    renderStatusBarOnly(timeStr);
+}
+
 // 顶部状态栏 (Y: 0 ~ 16 px)：左侧年月日时分，右侧电池(电量数字在图标内)
 static void drawStatusBar(const char *timeStr) {
     s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
     s_sprite.fillRect(0, 0, 200, 16, TFT_WHITE);
     s_sprite.setTextSize(1);
     s_sprite.drawString(2, 2, timeStr ? timeStr : "----/--/-- --:--");
+
+    // 若处于 Deep Sleep 休眠状态，在时间右侧显示高对比度反色胶囊休眠徽标 [zZ]
+    if (s_isSleeping) {
+        const int tagX = 104;
+        const int tagY = 2;
+        const int tagW = 22;
+        const int tagH = 12;
+        s_sprite.fillRoundRect(tagX, tagY, tagW, tagH, 2, TFT_BLACK);
+        s_sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+        s_sprite.drawString(tagX + 5, tagY + 2, "zZ");
+        s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
+    }
 
     int batPct = getBatteryPercentage();
     char batPctStr[16];

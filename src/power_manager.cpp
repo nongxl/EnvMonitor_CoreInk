@@ -160,6 +160,9 @@ void executePowerSleep(bool hasRenderedData) {
             saveBsecState();
             flushStorageToNVS();
 
+            // 标记休眠 zZ 徽标并快速局部刷新顶部状态栏
+            showSleepIndicator(true);
+
             // 等待墨水屏最后一次刷屏动作物理完成，彻底防止画面冻结
             delay(400);
 
@@ -193,6 +196,9 @@ void executePowerSleep(bool hasRenderedData) {
             Serial.println("[Power] Manual Mode: Entering Deep Sleep until key press...");
             saveBsecState();
             flushStorageToNVS();
+
+            // 标记休眠 zZ 徽标并快速局部刷新顶部状态栏
+            showSleepIndicator(true);
 
             // 等待墨水屏最后一次刷屏动作物理完成
             delay(400);

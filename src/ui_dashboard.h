@@ -73,3 +73,14 @@ void renderPowerMenuOverlay(uint8_t selectedIndex);
  */
 void renderSplashScreen(const char *statusMsg);
 
+/**
+ * @brief 设置或获取当前休眠状态指示 (在顶部状态栏时间旁显示/清除 zZ 徽标)
+ */
+void setSleepIndicator(bool sleeping);
+bool getSleepIndicator();
+
+/**
+ * @brief 在屏幕时间旁边局部刷新显示或擦除 zZ 休眠徽标
+ */
+void showSleepIndicator(bool sleeping);
+
