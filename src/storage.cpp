@@ -8,10 +8,10 @@ static const char *PREFS_NAMESPACE = "env_data";
 static const char *KEY_RECORDS = "records";
 static const char *KEY_COUNT = "count";
 
-// 1. NVS 持久化 24 小时整点历史记录
+// 1. NVS 持久化 7 天 (168 小时) 整点历史记录
 static EnvRecord s_history[MAX_HISTORY_RECORDS];
-static uint8_t s_count = 0;
-static uint8_t s_head = 0; // 下一个写入位置
+static uint16_t s_count = 0;
+static uint16_t s_head = 0; // 下一个写入位置
 
 // 2. 内存高精实时采样环形缓冲区 (开机后持续记录，支持毫秒~秒级细粒度缩放)
 static EnvRecord s_recent[MAX_RECENT_RECORDS];
@@ -47,7 +47,8 @@ void initStorage() {
         return;
     }
 
-    s_count = s_prefs.getUChar(KEY_COUNT, 0);
+    // 兼容读取 UShort 与老版本 UChar
+    s_count = s_prefs.getUShort(KEY_COUNT, s_prefs.getUChar(KEY_COUNT, 0));
     if (s_count > MAX_HISTORY_RECORDS) {
         s_count = MAX_HISTORY_RECORDS;
     }
@@ -58,13 +59,13 @@ void initStorage() {
         if (readBytes == expectedBytes) {
             uint32_t nowSec = getSystemTimestamp();
             // 清洗历史脏数据并补充时间戳
-            uint8_t validCount = 0;
-            for (uint8_t i = 0; i < s_count; ++i) {
+            uint16_t validCount = 0;
+            for (uint16_t i = 0; i < s_count; ++i) {
                 if (s_history[i].humi >= 99.9f || s_history[i].humi <= 0.0f ||
                     s_history[i].temp < -20.0f || s_history[i].temp > 60.0f) {
                     continue; // 忽略历史脏点
                 }
-                // 若历史时间戳是小时编号(0~24)，回溯修复为粗略时间戳
+                // 若历史时间戳异常，回溯修复为粗略时间戳
                 if (s_history[i].timestamp < 1000000000UL && nowSec > 1577836800UL) {
                     s_history[i].timestamp = nowSec - (s_count - i) * 3600UL;
                 }
@@ -88,12 +89,12 @@ void initStorage() {
 void flushStorageToNVS() {
     if (s_count == 0) return;
 
-    EnvRecord sorted[MAX_HISTORY_RECORDS];
-    uint8_t count = getHistoryRecords(sorted, MAX_HISTORY_RECORDS);
+    static EnvRecord sorted[MAX_HISTORY_RECORDS];
+    uint16_t count = getHistoryRecords(sorted, MAX_HISTORY_RECORDS);
 
     size_t writeBytes = count * sizeof(EnvRecord);
     size_t written = s_prefs.putBytes(KEY_RECORDS, sorted, writeBytes);
-    s_prefs.putUChar(KEY_COUNT, count);
+    s_prefs.putUShort(KEY_COUNT, count);
 
     Serial.printf("[Storage] Persisted %u records (%u bytes) to NVS.\n",
                   count, (unsigned int)written);
@@ -136,24 +137,31 @@ void appendRecentRecord(const EnvRecord &rec) {
     }
 }
 
-uint8_t getHistoryRecords(EnvRecord *outArray, uint8_t maxLen) {
+uint16_t getHistoryRecords(EnvRecord *outArray, uint16_t maxLen) {
     if (!outArray || maxLen == 0 || s_count == 0) {
         return 0;
     }
 
-    uint8_t n = (s_count < maxLen) ? s_count : maxLen;
+    uint16_t n = (s_count < maxLen) ? s_count : maxLen;
     if (s_count < MAX_HISTORY_RECORDS) {
-        for (uint8_t i = 0; i < n; ++i) {
+        for (uint16_t i = 0; i < n; ++i) {
             outArray[i] = s_history[i];
         }
     } else {
-        uint8_t startIdx = (s_head + MAX_HISTORY_RECORDS - n) % MAX_HISTORY_RECORDS;
-        for (uint8_t i = 0; i < n; ++i) {
+        uint16_t startIdx = (s_head + MAX_HISTORY_RECORDS - n) % MAX_HISTORY_RECORDS;
+        for (uint16_t i = 0; i < n; ++i) {
             outArray[i] = s_history[(startIdx + i) % MAX_HISTORY_RECORDS];
         }
     }
 
     return n;
+}
+
+bool getLatestHistoryRecord(EnvRecord &outRec) {
+    if (s_count == 0) return false;
+    uint16_t lastIdx = (s_head + MAX_HISTORY_RECORDS - 1) % MAX_HISTORY_RECORDS;
+    outRec = s_history[lastIdx];
+    return true;
 }
 
 uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windowStart, uint32_t windowEnd) {
@@ -162,9 +170,9 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
     uint16_t collected = 0;
 
     // 1. 从 NVS 历史整点中按时序筛选
-    EnvRecord hourly[MAX_HISTORY_RECORDS];
-    uint8_t hCount = getHistoryRecords(hourly, MAX_HISTORY_RECORDS);
-    for (uint8_t i = 0; i < hCount && collected < maxLen; ++i) {
+    static EnvRecord hourly[MAX_HISTORY_RECORDS];
+    uint16_t hCount = getHistoryRecords(hourly, MAX_HISTORY_RECORDS);
+    for (uint16_t i = 0; i < hCount && collected < maxLen; ++i) {
         if (hourly[i].timestamp >= windowStart && hourly[i].timestamp <= windowEnd) {
             outArray[collected++] = hourly[i];
         }
@@ -185,7 +193,7 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
         }
     }
 
-    // 3. 排序 (由于两段分别是有序的，简单冒泡或插入排序即可快速保证单调递增)
+    // 3. 排序 (快速单调递增保证)
     for (uint16_t i = 0; i < collected; ++i) {
         for (uint16_t j = i + 1; j < collected; ++j) {
             if (outArray[j].timestamp < outArray[i].timestamp) {
@@ -199,6 +207,6 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
     return collected;
 }
 
-uint8_t getHistoryCount() {
+uint16_t getHistoryCount() {
     return s_count;
 }

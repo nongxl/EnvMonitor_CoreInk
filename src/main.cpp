@@ -136,11 +136,7 @@ void setup() {
         s_firstDataRendered = true;
         appendRecentRecord(initialRec);
     } else if (getHistoryCount() > 0) {
-        EnvRecord hist[MAX_HISTORY_RECORDS];
-        uint8_t count = getHistoryRecords(hist, MAX_HISTORY_RECORDS);
-        if (count > 0) {
-            initialRec = hist[count - 1]; // 回显最近一次有效历史读数
-        }
+        getLatestHistoryRecord(initialRec); // 零栈开销直接回显最近一次有效历史读数
     }
 
     char timeStr[32];

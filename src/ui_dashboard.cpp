@@ -14,15 +14,20 @@ struct ZoomLevel {
 };
 
 static const ZoomLevel ZOOM_LEVELS[] = {
-    {"10m",   600,   60},   // 10 分钟视窗 (平移步长 1 分钟)
-    {"1h",   3600,  300},   // 1 小时视窗 (平移步长 5 分钟)
-    {"6h",  21600, 1800},   // 6 小时视窗 (平移步长 30 分钟)
-    {"24h", 86400, 3600}    // 24 小时视窗 (平移步长 1 小时)
+    {"5m",     300,    30},  // 5 分钟视窗 (平移步长 30 秒)
+    {"10m",    600,    60},  // 10 分钟视窗 (平移步长 1 分钟)
+    {"1h",    3600,   300},  // 1 小时视窗 (平移步长 5 分钟)
+    {"6h",   21600,  1800},  // 6 小时视窗 (平移步长 30 分钟)
+    {"24h",  86400,  3600},  // 24 小时视窗 (平移步长 1 小时)
+    {"2d",  172800, 14400},  // 2 天视窗 (平移步长 4 小时)
+    {"5d",  432000, 43200},  // 5 天视窗 (平移步长 12 小时)
+    {"7d",  604800, 86400}   // 7 天视窗 (平移步长 1 天 / 24 小时)
 };
-static const int ZOOM_COUNT = 4;
-static int s_zoomIdx = 0; // 默认 10m，开机立即可见细粒度动态曲线
+static const int ZOOM_COUNT = 8;
+static int s_zoomIdx = 1; // 默认 10m，开机立即可见细粒度动态曲线
 static ChartMode s_chartMode = CHART_MODE_ZOOM;
 static uint32_t s_panOffsetSec = 0;
+static const uint32_t MAX_PAN_OFFSET_SEC = 604800; // 最多平移 7 天
 
 void chartToggleMode() {
     if (s_chartMode == CHART_MODE_ZOOM) {
@@ -34,7 +39,7 @@ void chartToggleMode() {
 
 void chartHandleUp() {
     if (s_chartMode == CHART_MODE_ZOOM) {
-        // G37 (UP) in ZOOM: 放大时间轴 (24h -> 6h -> 1h -> 10m)
+        // G37 (UP) in ZOOM: 放大时间轴 (7d -> 5d -> 2d -> 24h -> 6h -> 1h -> 10m -> 5m)
         if (s_zoomIdx > 0) {
             s_zoomIdx--;
             s_panOffsetSec = 0; // 缩放时重置平移
@@ -42,8 +47,8 @@ void chartHandleUp() {
     } else {
         // G37 (UP) in PAN: 向左平移 (查看过去的时刻)
         s_panOffsetSec += ZOOM_LEVELS[s_zoomIdx].panStepSec;
-        if (s_panOffsetSec > 86400) {
-            s_panOffsetSec = 86400;
+        if (s_panOffsetSec > MAX_PAN_OFFSET_SEC) {
+            s_panOffsetSec = MAX_PAN_OFFSET_SEC;
         }
     }
 }
@@ -319,8 +324,10 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             snprintf(modeTag, sizeof(modeTag), "[PAN:%s]", ZOOM_LEVELS[s_zoomIdx].name);
         } else if (s_panOffsetSec < 3600) {
             snprintf(modeTag, sizeof(modeTag), "[PAN:-%um]", (unsigned)(s_panOffsetSec / 60));
-        } else {
+        } else if (s_panOffsetSec < 86400) {
             snprintf(modeTag, sizeof(modeTag), "[PAN:-%.1fh]", (float)s_panOffsetSec / 3600.0f);
+        } else {
+            snprintf(modeTag, sizeof(modeTag), "[PAN:-%.1fd]", (float)s_panOffsetSec / 86400.0f);
         }
     }
 
@@ -340,8 +347,10 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
         snprintf(leftTimeStr, sizeof(leftTimeStr), "Past");
         if (s_panOffsetSec < 3600) {
             snprintf(rightTimeStr, sizeof(rightTimeStr), "-%um", (unsigned)(s_panOffsetSec / 60));
-        } else {
+        } else if (s_panOffsetSec < 86400) {
             snprintf(rightTimeStr, sizeof(rightTimeStr), "-%.1fh", (float)s_panOffsetSec / 3600.0f);
+        } else {
+            snprintf(rightTimeStr, sizeof(rightTimeStr), "-%.1fd", (float)s_panOffsetSec / 86400.0f);
         }
     }
     // 左：起始时间
@@ -358,14 +367,14 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     if (rtW <= 0) rtW = strlen(rightTimeStr) * 8;
     s_sprite.drawString(chartRight - rtW, chartBottom + 3, rightTimeStr);
 
-    // 获取视窗内数据 (高频采样 + 历史整点)
-    EnvRecord chartPoints[128];
-    uint16_t count = getRecordsInWindow(chartPoints, 128, windowStart, windowEnd);
+    // 获取视窗内数据 (高频采样 + 历史整点，静态缓冲区支持至 7 天 256 点)
+    static EnvRecord s_chartPoints[256];
+    uint16_t count = getRecordsInWindow(s_chartPoints, 256, windowStart, windowEnd);
 
     // 若视窗内暂无历史点，且位于当前最新视窗，则以当前读数作为首个数据点
     if (count == 0 && hasValidData && s_panOffsetSec == 0) {
-        chartPoints[0] = current;
-        chartPoints[0].timestamp = nowSec;
+        s_chartPoints[0] = current;
+        s_chartPoints[0].timestamp = nowSec;
         count = 1;
     }
 
@@ -389,14 +398,14 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
 
     // 绘制温湿度连续折线：温度用粗实线 (2px)，湿度用细虚线 (1px)
     for (int i = 0; i < count; ++i) {
-        int x = mapTimeX(chartPoints[i].timestamp);
-        int yH = mapHumiY(chartPoints[i].humi);
-        int yT = mapTempY(chartPoints[i].temp);
+        int x = mapTimeX(s_chartPoints[i].timestamp);
+        int yH = mapHumiY(s_chartPoints[i].humi);
+        int yT = mapTempY(s_chartPoints[i].temp);
 
         if (i > 0) {
-            int prevX = mapTimeX(chartPoints[i - 1].timestamp);
-            int prevYH = mapHumiY(chartPoints[i - 1].humi);
-            int prevYT = mapTempY(chartPoints[i - 1].temp);
+            int prevX = mapTimeX(s_chartPoints[i - 1].timestamp);
+            int prevYH = mapHumiY(s_chartPoints[i - 1].humi);
+            int prevYT = mapTempY(s_chartPoints[i - 1].temp);
 
             // 温度：黑色粗实线 (2px)
             drawThickLine(prevX, prevYT, x, yT, 2, TFT_BLACK);
