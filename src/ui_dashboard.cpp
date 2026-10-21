@@ -251,12 +251,12 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 3. Center Dual-Curve Chart (Y: 48 ~ 146 px) 历史趋势 (纯白底黑线，支持缩放/平移)
     // ==========================================
-    // 去除纵轴单位充分拓宽图表至 154px：左侧实线温度轴 (-20~40)，右侧虚线湿度轴 (20~80)
-    const int chartLeft = 24;
-    const int chartRight = 178;
+    // 去除纵轴单位充分拓宽图表至 150px：左侧实线温度轴 (-20~40)，右侧虚线湿度轴 (30~90)
+    const int chartLeft = 26;
+    const int chartRight = 176;
     const int chartTop = 52;
     const int chartBottom = 128; // 压缩折线图高度，为下方时间刻度文字留出充足呼吸空间
-    const int chartW = chartRight - chartLeft; // 154 px (比原先增加 20px)
+    const int chartW = chartRight - chartLeft; // 150 px
     const int chartH = chartBottom - chartTop; // 76 px
 
     // 坐标轴框线 (左 Y 轴实线、右 Y 轴虚线呼应湿度、底 X 轴实线)
@@ -266,39 +266,40 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
 
     // 标尺设定：双刻度大跨度全天候模式 (跨度均为 60)
     // 温度：-20 ~ 40 (跨度 60) -> 对应左 Y 轴 (实线)
-    // 湿度：20 ~ 80 (跨度 60)  -> 对应右 Y 轴 (虚线)
-    // 黄金基准线：对应 25 (占比 75%) 与雪茄目标 65 RH
+    // 湿度： 30 ~ 90 (跨度 60) -> 对应右 Y 轴 (虚线)
+    // 黄金基准线：75% 高度处，对应温度 25°C 与参考湿度 75%
     const float tempMin = -20.0f, tempMax = 40.0f;
-    const float humiMin = 20.0f, humiMax = 80.0f;
-    const float humiTarget = 65.0f;
+    const float humiMin = 30.0f, humiMax = 90.0f;
+    const float refRatio = 0.75f;
 
-    int targetY = chartBottom - (int)((humiTarget - humiMin) / (humiMax - humiMin) * chartH);
+    int targetY = chartBottom - (int)(refRatio * chartH);
     drawDashedHLine(chartLeft, targetY, chartW, 2, 2, TFT_BLACK);
 
-    // 辅助 lambda：绘制左侧纯数字温度刻度 (无单位，右对齐于 chartLeft - 3)
+    // 辅助 lambda：绘制左侧纯数字温度刻度 (无单位，右对齐于 chartLeft - 2，做非负截断防裁剪)
     auto drawLeftTempTick = [&](int y, const char *numStr) {
         s_sprite.setTextSize(1);
         int nw = s_sprite.textWidth(numStr, &fonts::AsciiFont8x16);
         if (nw <= 0) nw = strlen(numStr) * 8;
-        int numX = (chartLeft - 3) - nw;
+        int numX = (chartLeft - 2) - nw;
+        if (numX < 0) numX = 0;
         s_sprite.drawString(numX, y, numStr);
     };
 
     // 左侧刻度文字：温度 (-20 ~ 40 纯数字)
     drawLeftTempTick(chartTop - 2, "40");
     drawLeftTempTick(targetY - 4, "25");
-    drawLeftTempTick(chartBottom - 6, "-20");
+    drawLeftTempTick(chartBottom - 10, "-20");
 
-    // 右侧刻度文字：湿度 (20 ~ 80 纯数字，黑字白底)
+    // 右侧刻度文字：湿度 (30 ~ 90 纯数字，黑字白底)
     s_sprite.setTextSize(1);
-    s_sprite.drawString(chartRight + 4, chartTop - 2, "80");
-    s_sprite.drawString(chartRight + 4, targetY - 4, "65");
-    s_sprite.drawString(chartRight + 4, chartBottom - 6, "20");
+    s_sprite.drawString(chartRight + 4, chartTop - 2, "90");
+    s_sprite.drawString(chartRight + 4, targetY - 4, "75");
+    s_sprite.drawString(chartRight + 4, chartBottom - 10, "30");
 
     // 右上角图例 (黑字白底：T- 温度实线，H.. 湿度虚线)
     s_sprite.drawString(chartRight - 44, chartTop + 2, "T- H..");
 
-    // 顶部模式与当前视窗状态标签
+    // 模式与视窗状态标签 (移动到横坐标轴中间下方展示)
     char modeTag[32];
     if (s_chartMode == CHART_MODE_ZOOM) {
         snprintf(modeTag, sizeof(modeTag), "[ZOOM:%s]", ZOOM_LEVELS[s_zoomIdx].name);
@@ -311,7 +312,6 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             snprintf(modeTag, sizeof(modeTag), "[PAN:-%.1fh]", (float)s_panOffsetSec / 3600.0f);
         }
     }
-    s_sprite.drawString(chartLeft + 4, chartTop + 2, modeTag);
 
     // 计算当前时间视窗 [windowStart, windowEnd]
     uint32_t nowSec = getSystemTimestamp();
@@ -319,7 +319,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     uint32_t windowSpan = ZOOM_LEVELS[s_zoomIdx].durationSec;
     uint32_t windowStart = (windowEnd >= windowSpan) ? (windowEnd - windowSpan) : 0;
 
-    // 底部时间刻度文字 (位于 X 轴下方 Y: 139 ~ 147)
+    // 底部时间刻度与居中模式控件 (位于 X 轴下方 Y: 131)
     char leftTimeStr[16];
     char rightTimeStr[16];
     if (s_panOffsetSec == 0) {
@@ -333,7 +333,16 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             snprintf(rightTimeStr, sizeof(rightTimeStr), "-%.1fh", (float)s_panOffsetSec / 3600.0f);
         }
     }
+    // 左：起始时间
     s_sprite.drawString(chartLeft, chartBottom + 3, leftTimeStr);
+
+    // 中：PAN / ZOOM 状态控件居中显示在横坐标下方
+    int tagW = s_sprite.textWidth(modeTag, &fonts::AsciiFont8x16);
+    if (tagW <= 0) tagW = strlen(modeTag) * 8;
+    int tagX = (chartLeft + chartRight - tagW) / 2;
+    s_sprite.drawString(tagX, chartBottom + 3, modeTag);
+
+    // 右：截止时间 (如 Now)
     int rtW = s_sprite.textWidth(rightTimeStr, &fonts::AsciiFont8x16);
     if (rtW <= 0) rtW = strlen(rightTimeStr) * 8;
     s_sprite.drawString(chartRight - rtW, chartBottom + 3, rightTimeStr);
