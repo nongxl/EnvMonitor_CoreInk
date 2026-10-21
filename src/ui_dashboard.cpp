@@ -188,18 +188,20 @@ static void drawStatusBar(const char *timeStr) {
     s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
     s_sprite.fillRect(0, 0, 200, 16, TFT_WHITE);
     s_sprite.setTextSize(1);
-    s_sprite.drawString(2, 2, timeStr ? timeStr : "----/--/-- --:--");
+    const char *actualTimeStr = timeStr ? timeStr : "----/--/-- --:--";
+    s_sprite.drawString(2, 2, actualTimeStr);
 
-    // 若处于 Deep Sleep 休眠状态，在时间右侧显示高对比度反色胶囊休眠徽标 [zZ]
+    // 若处于 Deep Sleep 休眠状态，在时间文本右侧自适应追加黑色 zZ 标记 (不遮挡时间，不碰电池)
     if (s_isSleeping) {
-        const int tagX = 104;
-        const int tagY = 2;
-        const int tagW = 22;
-        const int tagH = 12;
-        s_sprite.fillRoundRect(tagX, tagY, tagW, tagH, 2, TFT_BLACK);
-        s_sprite.setTextColor(TFT_WHITE, TFT_BLACK);
-        s_sprite.drawString(tagX + 5, tagY + 2, "zZ");
-        s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
+        int tw = s_sprite.textWidth(actualTimeStr);
+        if (tw <= 0) {
+            tw = strlen(actualTimeStr) * 7;
+        }
+        int zzX = 2 + tw + 4;
+        if (zzX > 146) {
+            zzX = 146; // 限制右界，与右侧电池图标 (batX = 164) 保持足够间隙
+        }
+        s_sprite.drawString(zzX, 2, "zZ");
     }
 
     int batPct = getBatteryPercentage();
