@@ -669,14 +669,14 @@ void renderPowerMenuOverlay(uint8_t selectedIndex) {
     s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
     const char *title = "SELECT POWER MODE";
     int tw = s_sprite.textWidth(title);
-    s_sprite.drawString(8 + (184 - tw) / 2, 25, title);
+    s_sprite.drawString((180 - tw) / 2, 25, title);
     s_sprite.drawFastHLine(10, 39, 180, TFT_BLACK);
 
     // 4 项模式列表
     const char *options[4] = {
         "1. Realtime  (~10h)",
         "2. Balanced  (~6d)",
-        "3. Eco ULP   (~1mo)",
+        "3. Eco ULP   (~2mo)",
         "4. On-Demand (Mos+)"
     };
 
@@ -708,7 +708,7 @@ void renderPowerMenuOverlay(uint8_t selectedIndex) {
             "Balanced daily monitor"
         },
         {
-            "5-min Deep Sleep RTC",
+            "10-min Deep Sleep RTC",
             "Periodic data logging",
             "For cigar humidor box"
         },

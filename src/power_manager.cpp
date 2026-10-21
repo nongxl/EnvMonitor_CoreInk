@@ -131,9 +131,9 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_ECO: {
-            // 长效续航：每当有新数据渲染完毕后，进入 5 分钟 Deep-Sleep
+            // 长效续航：每当有新数据渲染完毕后，进入 10 分钟 Deep-Sleep
             if (hasRenderedData) {
-                Serial.println("[Power] Eco Mode: Data rendered. Entering 5-min Deep Sleep...");
+                Serial.println("[Power] Eco Mode: Data rendered. Entering 10-min Deep Sleep...");
                 saveBsecState();
                 flushStorageToNVS();
 
@@ -146,8 +146,8 @@ void executePowerSleep(bool hasRenderedData) {
                 M5.M5Ink.deepSleep();
                 delay(20);
 
-                // 5 分钟定时唤醒，或者按键 G27/G38 唤醒
-                esp_sleep_enable_timer_wakeup(300ULL * 1000000ULL);
+                // 10 分钟定时唤醒 (600秒)，或者按键 G27/G38 唤醒
+                esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
                 esp_sleep_enable_ext1_wakeup((1ULL << 27) | (1ULL << 38), ESP_EXT1_WAKEUP_ALL_LOW);
                 esp_deep_sleep_start();
             } else {
