@@ -191,17 +191,9 @@ static void drawStatusBar(const char *timeStr) {
     const char *actualTimeStr = timeStr ? timeStr : "----/--/-- --:--";
     s_sprite.drawString(2, 2, actualTimeStr);
 
-    // 若处于 Deep Sleep 休眠状态，在时间文本右侧自适应追加黑色 zZ 标记 (不遮挡时间，不碰电池)
+    // 若处于 Deep Sleep 休眠状态，在时间右侧显示黑色 zZ 标记 (固定位于 X:148，与时间文字保持充裕间距，绝不遮挡时间)
     if (s_isSleeping) {
-        int tw = s_sprite.textWidth(actualTimeStr);
-        if (tw <= 0) {
-            tw = strlen(actualTimeStr) * 7;
-        }
-        int zzX = 2 + tw + 4;
-        if (zzX > 146) {
-            zzX = 146; // 限制右界，与右侧电池图标 (batX = 164) 保持足够间隙
-        }
-        s_sprite.drawString(zzX, 2, "zZ");
+        s_sprite.drawString(148, 2, "zZ");
     }
 
     int batPct = getBatteryPercentage();
