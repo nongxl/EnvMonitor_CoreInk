@@ -38,7 +38,7 @@ static void powerOffDevice() {
     Serial.println("[Power] Powering off: Screen content preserved, cutting battery latch.");
     Serial.println("========================================");
 
-    // 1. 保存当前历史数据至 NVS
+    // 1. 保存当前历史数据到 NVS
     flushStorageToNVS();
 
     // 2. 将墨水屏驱动芯片置入 Deep Sleep，切断驱动 IC 功耗（物理画面永久保持，发挥墨水屏优势）
@@ -87,6 +87,14 @@ static void checkPowerKey() {
     }
 }
 
+static void renderCurrentPage(const EnvRecord &rec, const char *timeStr, bool fullRefresh = false) {
+    if (getActivePage() == PAGE_DASHBOARD) {
+        renderDashboard(rec, timeStr, fullRefresh);
+    } else {
+        renderAirLab(rec, timeStr, fullRefresh);
+    }
+}
+
 void setup() {
     // 1. 硬件初始化 & 供电引脚持续拉高 (GPIO 12)
     M5.begin(true, true, false);
@@ -100,24 +108,27 @@ void setup() {
     Serial.println("  CoreInk Humidor Environmental Monitor  ");
     Serial.println("========================================");
 
-    // 2. 初始化持久化存储 (从 NVS 恢复 24 小时历史数据)
+    // 检查唤醒原因：区别对待冷启动与定时器/按键唤醒
+    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+    bool isWakeFromSleep = (wakeCause == ESP_SLEEP_WAKEUP_TIMER || 
+                            wakeCause == ESP_SLEEP_WAKEUP_EXT0 || 
+                            wakeCause == ESP_SLEEP_WAKEUP_EXT1);
+
+    // 2. 初始化持久化存储 (NVS 恢复整点，RTC 内存恢复高频实时数据)
     initStorage();
 
     // 3. 初始化 200x200 E-Ink 仪表盘
     initDashboard();
 
-    // 4. Wi-Fi NTP 单次授时 (仅在冷启动非休眠唤醒时同步，节省深睡唤醒电量)
-    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
-    if (wakeCause == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        // ★ 立即呈现丘吉尔抽雪茄剪影画面，彻底消除等待 Wi-Fi 过程中的黑屏体验
+    // 4. Wi-Fi NTP 授时 (仅在冷启动首次开机时进行，休眠唤醒直接使用硬件 RTC，彻底消除等待与电量浪费)
+    if (!isWakeFromSleep) {
         renderSplashScreen("Connecting Wi-Fi...");
-
         syncNtpTime(8000);
     } else {
-        Serial.printf("[RTC Boot] Woke from sleep (cause=%d), skipping Wi-Fi NTP.\n", (int)wakeCause);
+        Serial.printf("[RTC Boot] Woke from deep sleep (cause=%d), skipping Wi-Fi NTP.\n", (int)wakeCause);
     }
 
-    // 5. 校验并打印当前 RTC 时间
+    // 5. 校验并打印当前 BM8563 硬件 RTC 时间
     RTC_TimeTypeDef initTime;
     RTC_DateTypeDef initDate;
     M5.rtc.GetTime(&initTime);
@@ -132,36 +143,45 @@ void setup() {
     // 6. 初始化 Bosch BSEC 传感器 (Unit ENV-Pro / BME688)
     initBSEC();
 
-    // 7. 同步等待第一包有效读数 (最多 4 秒)，确保开机直接显示真实传感器数据
+    // 7. 同步等待第一包有效读数 (最多 3 秒)，确保开机直接显示真实传感器数据
     EnvRecord initialRec;
-    bool gotFirst = waitForFirstReading(initialRec, 4000);
+    bool gotFirst = waitForFirstReading(initialRec, 3000);
     if (gotFirst) {
         s_firstDataRendered = true;
         appendRecentRecord(initialRec);
     } else if (getHistoryCount() > 0) {
-        getLatestHistoryRecord(initialRec); // 零栈开销直接回显最近一次有效历史读数
+        getLatestHistoryRecord(initialRec);
     }
 
     char timeStr[32];
     getTimeString(timeStr, sizeof(timeStr));
 
-    // 开机执行一次高质量全刷 (清除残影)
-    renderDashboard(initialRec, timeStr, true);
+    // 核心优化：
+    // - 冷启动上电：全刷清除残影 (fullRefresh = true)
+    // - 周期唤醒 / 按键唤醒：快速局部无闪刷新 (fullRefresh = false)，绝不闪黑白全屏！
+    renderCurrentPage(initialRec, timeStr, !isWakeFromSleep);
 
     // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
     initPowerManager();
-}
 
-static void renderCurrentPage(const EnvRecord &rec, const char *timeStr, bool fullRefresh = false) {
-    if (getActivePage() == PAGE_DASHBOARD) {
-        renderDashboard(rec, timeStr, fullRefresh);
-    } else {
-        renderAirLab(rec, timeStr, fullRefresh);
+    // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时休眠唤醒下获得有效数据，直接进入下一轮睡眠
+    if (isWakeFromSleep && gotFirst && (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
+        Serial.println("[Eco] Periodic sample rendered smoothly. Returning to Deep Sleep immediately.");
+        executePowerSleep(true);
     }
 }
 
 void loop() {
     M5.update();
+
+    // 活跃窗口感知：用户触碰/拨动/长按任意按键时，持续延长 350ms 全速运作窗口，防止连续操作中途休眠
+    if (M5.BtnEXT.wasPressed() || M5.BtnEXT.isPressed() || M5.BtnEXT.wasReleased() ||
+        M5.BtnPWR.wasPressed() || M5.BtnPWR.isPressed() || M5.BtnPWR.wasReleased() ||
+        M5.BtnMID.wasPressed() || M5.BtnMID.isPressed() || M5.BtnMID.wasReleased() ||
+        M5.BtnUP.wasPressed()  || M5.BtnUP.isPressed()  || M5.BtnUP.wasReleased()  ||
+        M5.BtnDOWN.wasPressed()|| M5.BtnDOWN.isPressed()|| M5.BtnDOWN.wasReleased()) {
+        notifyUserActivity();
+    }
 
     // 核心交互：G27 电源键【双击关机 / 单击重启】
     checkPowerKey();
@@ -336,12 +356,12 @@ void loop() {
         renderCurrentPage(currentRec, timeStr, false);
         s_firstDataRendered = true;
     } else if (getPowerMode() == PWR_MODE_REALTIME && hasNewData) {
-        // 模式 1 (Realtime 极速模式)：有新采样即时快速刷新 (3秒/次)
+        // 模式 1 (Realtime 极速模式)：有新采样即时快速刷新 (3秒级)
         s_lastMinute = curTime.Minutes;
         renderCurrentPage(currentRec, timeStr, false);
     } else if (curTime.Minutes != s_lastMinute) {
         // 模式 2 (Balanced 均衡模式) / 模式 3 / 4：
-        // 方案 A (解耦防抖)：每整分钟随时间跳动整屏同步刷新一次 (温湿度/气压/IAQ/时间统一刷新，大幅降低墨水屏功耗)
+        // 每整分钟随时间跳动整屏同步刷新一次
         s_lastMinute = curTime.Minutes;
         EnvRecord recToRender = isSensorReady() ? getLatestEnvRecord() : currentRec;
         renderCurrentPage(recToRender, timeStr, false);
@@ -350,4 +370,3 @@ void loop() {
     // 电源管理与休眠调度 (Light-Sleep / Deep-Sleep / delay)
     executePowerSleep(hasNewData || isHourlyTrigger);
 }
-

@@ -1,4 +1,4 @@
-#include "storage.h"
+﻿#include "storage.h"
 #include <Preferences.h>
 #include <time.h>
 #include <M5CoreInk.h>
@@ -13,10 +13,12 @@ static EnvRecord s_history[MAX_HISTORY_RECORDS];
 static uint16_t s_count = 0;
 static uint16_t s_head = 0; // 下一个写入位置
 
-// 2. 内存高精实时采样环形缓冲区 (开机后持续记录，支持毫秒~秒级细粒度缩放)
-static EnvRecord s_recent[MAX_RECENT_RECORDS];
-static uint16_t s_recentCount = 0;
-static uint16_t s_recentHead = 0;
+// 2. RTC 内存高精实时采样环形缓冲区 (Deep Sleep 期间不断电，保持连续历史曲线)
+RTC_DATA_ATTR static EnvRecord s_recent[MAX_RECENT_RECORDS];
+RTC_DATA_ATTR static uint16_t s_recentCount = 0;
+RTC_DATA_ATTR static uint16_t s_recentHead = 0;
+RTC_DATA_ATTR static uint32_t s_rtcMagic = 0;
+static const uint32_t RTC_STORAGE_MAGIC = 0x43494E4B; // 'CINK'
 
 uint32_t getSystemTimestamp() {
     RTC_TimeTypeDef t;
@@ -45,6 +47,16 @@ void initStorage() {
     if (!s_prefs.begin(PREFS_NAMESPACE, false)) {
         Serial.println("[Storage] Failed to open Preferences namespace 'env_data'!");
         return;
+    }
+
+    // 校验 RTC 实时环形缓冲区魔数，初次上电时重置
+    if (s_rtcMagic != RTC_STORAGE_MAGIC || s_recentCount > MAX_RECENT_RECORDS || s_recentHead >= MAX_RECENT_RECORDS) {
+        Serial.println("[Storage] RTC memory cold reset: Initializing recent buffer.");
+        s_recentCount = 0;
+        s_recentHead = 0;
+        s_rtcMagic = RTC_STORAGE_MAGIC;
+    } else {
+        Serial.printf("[Storage] Restored %u recent records across Deep Sleep from RTC memory.\n", s_recentCount);
     }
 
     // 兼容读取 UShort 与老版本 UChar
@@ -178,7 +190,7 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
         }
     }
 
-    // 2. 从内存高频实时缓冲中筛选
+    // 2. 从 RTC 保持的高频采样缓冲中筛选
     if (s_recentCount > 0) {
         uint16_t startIdx = (s_recentHead + MAX_RECENT_RECORDS - s_recentCount) % MAX_RECENT_RECORDS;
         for (uint16_t i = 0; i < s_recentCount && collected < maxLen; ++i) {

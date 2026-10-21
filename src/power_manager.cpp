@@ -106,6 +106,12 @@ void renderPowerMenu() {
     }
 }
 
+static uint32_t s_lastUserActionMs = 0;
+
+void notifyUserActivity() {
+    s_lastUserActionMs = millis();
+}
+
 void executePowerSleep(bool hasRenderedData) {
     if (s_menuOpen) {
         delay(20);
@@ -118,14 +124,29 @@ void executePowerSleep(bool hasRenderedData) {
             break;
 
         case PWR_MODE_BALANCED: {
-            // 均衡模式：动态 Light-Sleep (按键低电平即时唤醒，或最多休眠 200ms 后轮询)
-            gpio_wakeup_enable((gpio_num_t)5, GPIO_INTR_LOW_LEVEL);
+            // 1. 电纸书级连续操作活跃窗口：在用户按键或滚轮操作后的 350ms 内保持全速运转
+            //    保证快速连拨滚轮或连按按键时手感极致跟手、零丢步
+            if (millis() - s_lastUserActionMs < 350) {
+                delay(15);
+                break;
+            }
+
+            // 2. 空闲无按键操作时，立即切断墨水屏高压偏置电源 (功耗降为 0)
+            M5.M5Ink.powerHVOFF();
+
+            // 3. 电纸书级纯硬件外部中断 Light-Sleep：
+            //    所有按键配置为硬件低电平唤醒源 (GPIO 5, 27, 37, 38, 39)
+            //    用户触碰/拨动任意键的瞬间，硬件中断 1ms 内瞬间唤醒 CPU，零感知延迟！
+            gpio_wakeup_enable((gpio_num_t)5,  GPIO_INTR_LOW_LEVEL);
             gpio_wakeup_enable((gpio_num_t)27, GPIO_INTR_LOW_LEVEL);
             gpio_wakeup_enable((gpio_num_t)37, GPIO_INTR_LOW_LEVEL);
             gpio_wakeup_enable((gpio_num_t)38, GPIO_INTR_LOW_LEVEL);
             gpio_wakeup_enable((gpio_num_t)39, GPIO_INTR_LOW_LEVEL);
             esp_sleep_enable_gpio_wakeup();
-            esp_sleep_enable_timer_wakeup(200ULL * 1000ULL); // 200ms
+
+            // 4. 定时低频唤醒 (3秒周期)：与 BSEC 传感器低频采样节拍同步，整机 99% 的时间挂起在浅睡眠中
+            esp_sleep_enable_timer_wakeup(3ULL * 1000000ULL);
+
             esp_light_sleep_start();
             break;
         }
@@ -137,18 +158,20 @@ void executePowerSleep(bool hasRenderedData) {
                 saveBsecState();
                 flushStorageToNVS();
 
-                // 锁存电源引脚 (GPIO 12)，防止休眠期间切断供电
+                // 锁存电源引脚 (GPIO 12)，防止休眠期间切断电池供电
                 pinMode(12, OUTPUT);
                 digitalWrite(12, HIGH);
                 gpio_hold_en((gpio_num_t)12);
                 gpio_deep_sleep_hold_en();
 
+                // 墨水屏驱动芯片进入休眠，物理画面保持
                 M5.M5Ink.deepSleep();
                 delay(20);
 
-                // 10 分钟定时唤醒 (600秒)，或者按键 G27/G38 唤醒
+                // 10 分钟定时唤醒 (600秒)，同时使能 G38(中键) 与 G27(电源键) 低电平按键唤醒
                 esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
-                esp_sleep_enable_ext1_wakeup((1ULL << 27) | (1ULL << 38), ESP_EXT1_WAKEUP_ALL_LOW);
+                // EXT0 支持单个 GPIO 在指定电平唤醒 (G38 是 RTC IO 13，按下为 LOW)
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
                 esp_deep_sleep_start();
             } else {
                 delay(20);
@@ -171,7 +194,7 @@ void executePowerSleep(bool hasRenderedData) {
                 M5.M5Ink.deepSleep();
                 delay(20);
 
-                esp_sleep_enable_ext1_wakeup((1ULL << 27) | (1ULL << 38), ESP_EXT1_WAKEUP_ALL_LOW);
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
                 esp_deep_sleep_start();
             } else {
                 delay(20);

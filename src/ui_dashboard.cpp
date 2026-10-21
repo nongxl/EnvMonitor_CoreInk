@@ -202,6 +202,7 @@ void renderStatusBarOnly(const char *timeStr) {
     drawStatusBar(timeStr);
 
     // 通过裁剪区域只把顶部 0~17px 推送到屏幕，其余区域不刷新
+    M5.M5Ink.powerHVON();
     M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
     M5.M5Ink.setClipRect(0, 0, 200, 18);
     s_sprite.pushSprite();
@@ -493,6 +494,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 5. 推送到电子墨水屏 (高质量全局全刷或局部刷新)
     // ==========================================
+    M5.M5Ink.powerHVON();
     if (fullRefresh) {
         M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
         M5.M5Ink.clear();
@@ -646,6 +648,7 @@ void renderAirLab(const EnvRecord &current, const char *timeStr, bool fullRefres
     s_sprite.drawString(6, 186, runInBuf);
 
     // 5. 推送到屏幕
+    M5.M5Ink.powerHVON();
     if (fullRefresh) {
         M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
         M5.M5Ink.clear();
@@ -725,6 +728,7 @@ void renderPowerMenuOverlay(uint8_t selectedIndex) {
     s_sprite.drawString(16, 140, desc[sel][1]);
     s_sprite.drawString(16, 154, desc[sel][2]);
 
+    M5.M5Ink.powerHVON();
     M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
     s_sprite.pushSprite();
 }
@@ -761,6 +765,7 @@ void renderSplashScreen(const char *statusMsg) {
     }
 
     // 5. 高质量全刷上屏 (消除开机等待过程中的全黑与空白)
+    M5.M5Ink.powerHVON();
     M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
     s_sprite.pushSprite();
 }

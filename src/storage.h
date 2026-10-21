@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 #include <Arduino.h>
 #include "model.h"
 
 #define MAX_HISTORY_RECORDS 168 // 支持最多 7 天 (7*24h = 168 小时) 逐小时持久化记录
-#define MAX_RECENT_RECORDS  240
+#define MAX_RECENT_RECORDS  120 // RTC 内存容量优化：120 点足以覆盖 10m/1h/2h 高精连续曲线
 
 /**
  * @brief 初始化持久化存储，并从 NVS 加载已有的历史记录

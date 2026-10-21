@@ -25,3 +25,8 @@ void renderPowerMenu();
 
 // 睡眠调度与进入休眠
 void executePowerSleep(bool hasRenderedData = false);
+
+/**
+ * @brief 通知电源管理器当前有用户按键活动，刷新活跃窗口防止误休眠
+ */
+void notifyUserActivity();
