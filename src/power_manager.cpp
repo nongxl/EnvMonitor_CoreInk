@@ -55,11 +55,11 @@ void setPowerMode(PowerMode mode) {
             break;
         case PWR_MODE_ECO:
             setCpuFrequencyMhz(80);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_ULP);
+            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
             break;
         case PWR_MODE_MANUAL:
             setCpuFrequencyMhz(80);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_ULP);
+            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
             break;
         default:
             break;
@@ -152,53 +152,62 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_ECO: {
-            // 长效续航：每当有新数据渲染完毕后，进入 10 分钟 Deep-Sleep
-            if (hasRenderedData) {
-                Serial.println("[Power] Eco Mode: Data rendered. Entering 10-min Deep Sleep...");
-                saveBsecState();
-                flushStorageToNVS();
-
-                // 锁存电源引脚 (GPIO 12)，防止休眠期间切断电池供电
-                pinMode(12, OUTPUT);
-                digitalWrite(12, HIGH);
-                gpio_hold_en((gpio_num_t)12);
-                gpio_deep_sleep_hold_en();
-
-                // 墨水屏驱动芯片进入休眠，物理画面保持
-                M5.M5Ink.deepSleep();
+            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 保持全速运转响应界面交互
+            if (millis() - s_lastUserActionMs < 30000 && !hasRenderedData) {
                 delay(20);
-
-                // 10 分钟定时唤醒 (600秒)，同时使能 G38(中键) 与 G27(电源键) 低电平按键唤醒
-                esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
-                // EXT0 支持单个 GPIO 在指定电平唤醒 (G38 是 RTC IO 13，按下为 LOW)
-                esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
-                esp_deep_sleep_start();
-            } else {
-                delay(20);
+                break;
             }
+
+            // 无操作超过 30 秒，或新数据已渲染完毕，立即进入 10 分钟 Deep-Sleep
+            Serial.println("[Power] Eco Mode: Entering 10-min Deep Sleep...");
+            saveBsecState();
+            flushStorageToNVS();
+
+            // 彻底关闭外设与高压，熄灭绿色指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
+            pinMode(10, OUTPUT);
+            digitalWrite(10, HIGH);
+            M5.M5Ink.powerHVOFF();
+            M5.M5Ink.deepSleep();
+
+            // 锁存电源引脚 (GPIO 12)，防止休眠期间切断电池供电
+            pinMode(12, OUTPUT);
+            digitalWrite(12, HIGH);
+            gpio_hold_en((gpio_num_t)12);
+            gpio_deep_sleep_hold_en();
+            delay(20);
+
+            // 10 分钟定时唤醒 (600秒)
+            esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
+            // G38 中键按键唤醒 (RTC IO 2，低电平触发)
+            esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
+            esp_deep_sleep_start();
             break;
         }
 
         case PWR_MODE_MANUAL: {
-            // 按需采样：单次数据测量并上屏后，进入永久深度睡眠，仅按键唤醒
-            if (hasRenderedData) {
-                Serial.println("[Power] Manual Mode: Data rendered. Entering Deep Sleep until key press...");
-                saveBsecState();
-                flushStorageToNVS();
-
-                pinMode(12, OUTPUT);
-                digitalWrite(12, HIGH);
-                gpio_hold_en((gpio_num_t)12);
-                gpio_deep_sleep_hold_en();
-
-                M5.M5Ink.deepSleep();
+            // 用户操作活跃期内保持响应
+            if (millis() - s_lastUserActionMs < 30000 && !hasRenderedData) {
                 delay(20);
-
-                esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
-                esp_deep_sleep_start();
-            } else {
-                delay(20);
+                break;
             }
+
+            Serial.println("[Power] Manual Mode: Entering Deep Sleep until key press...");
+            saveBsecState();
+            flushStorageToNVS();
+
+            pinMode(10, OUTPUT);
+            digitalWrite(10, HIGH);
+            M5.M5Ink.powerHVOFF();
+            M5.M5Ink.deepSleep();
+
+            pinMode(12, OUTPUT);
+            digitalWrite(12, HIGH);
+            gpio_hold_en((gpio_num_t)12);
+            gpio_deep_sleep_hold_en();
+            delay(20);
+
+            esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
+            esp_deep_sleep_start();
             break;
         }
     }

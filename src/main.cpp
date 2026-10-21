@@ -9,9 +9,9 @@
 #include "battery.h"
 #include "power_manager.h"
 
-// 计时与调度变量
-static int8_t s_lastHour = -1;
-static int8_t s_lastMinute = -1;
+// 计时与调度变量 (RTC 内存保持，深度休眠唤醒不丢失整点时序)
+RTC_DATA_ATTR static int8_t s_lastHour = -1;
+RTC_DATA_ATTR static int8_t s_lastMinute = -1;
 static uint32_t s_lastHourlySaveMs = 0;
 static bool s_firstDataRendered = false;
 
@@ -100,6 +100,11 @@ void setup() {
     M5.begin(true, true, false);
     pinMode(POWER_HOLD_PIN, OUTPUT);
     digitalWrite(POWER_HOLD_PIN, HIGH);
+    gpio_hold_dis((gpio_num_t)POWER_HOLD_PIN); // 解除上一次深度睡眠的硬件锁存
+
+    // 彻底熄灭 CoreInk 绿色外设指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
+    pinMode(LED_EXT_PIN, OUTPUT);
+    digitalWrite(LED_EXT_PIN, HIGH);
 
     // 关键修正：关闭官方库默认的硬件反相，恢复真正的正相白底黑字显示！
     M5.M5Ink.invertDisplay(false);
@@ -108,11 +113,11 @@ void setup() {
     Serial.println("  CoreInk Humidor Environmental Monitor  ");
     Serial.println("========================================");
 
-    // 检查唤醒原因：区别对待冷启动与定时器/按键唤醒
+    // 检查唤醒原因：区别对待冷启动、定时器唤醒与按键唤醒
     esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
-    bool isWakeFromSleep = (wakeCause == ESP_SLEEP_WAKEUP_TIMER || 
-                            wakeCause == ESP_SLEEP_WAKEUP_EXT0 || 
-                            wakeCause == ESP_SLEEP_WAKEUP_EXT1);
+    bool isTimerWake = (wakeCause == ESP_SLEEP_WAKEUP_TIMER);
+    bool isButtonWake = (wakeCause == ESP_SLEEP_WAKEUP_EXT0 || wakeCause == ESP_SLEEP_WAKEUP_EXT1);
+    bool isWakeFromSleep = isTimerWake || isButtonWake;
 
     // 2. 初始化持久化存储 (NVS 恢复整点，RTC 内存恢复高频实时数据)
     initStorage();
@@ -136,22 +141,37 @@ void setup() {
     Serial.printf("[RTC Boot Time] %04d-%02d-%02d %02d:%02d:%02d\n",
                   initDate.Year, initDate.Month, initDate.Date,
                   initTime.Hours, initTime.Minutes, initTime.Seconds);
-    s_lastHour = initTime.Hours;
-    s_lastMinute = initTime.Minutes;
-    s_lastHourlySaveMs = millis();
+
+    bool isHourRolledOver = (s_lastHour >= 0 && initTime.Hours != s_lastHour);
 
     // 6. 初始化 Bosch BSEC 传感器 (Unit ENV-Pro / BME688)
     initBSEC();
 
-    // 7. 同步等待第一包有效读数 (最多 3 秒)，确保开机直接显示真实传感器数据
+    // 7. 同步等待有效读数 (最多 4 秒)，确保开机/唤醒直接显示真实传感器数据
     EnvRecord initialRec;
-    bool gotFirst = waitForFirstReading(initialRec, 3000);
+    bool gotFirst = waitForFirstReading(initialRec, 4000);
     if (gotFirst) {
         s_firstDataRendered = true;
         appendRecentRecord(initialRec);
-    } else if (getHistoryCount() > 0) {
-        getLatestHistoryRecord(initialRec);
+    } else {
+        EnvRecord cached = getLatestEnvRecord();
+        if (cached.temp != 0.0f || cached.humi != 0.0f) {
+            initialRec = cached;
+            gotFirst = true;
+        } else if (getHistoryCount() > 0) {
+            getLatestHistoryRecord(initialRec);
+            gotFirst = true;
+        }
     }
+
+    if (isHourRolledOver && gotFirst) {
+        EnvRecord recToSave = initialRec;
+        recToSave.timestamp = getSystemTimestamp();
+        appendHourlyRecord(recToSave);
+    }
+    s_lastHour = initTime.Hours;
+    s_lastMinute = initTime.Minutes;
+    s_lastHourlySaveMs = millis();
 
     char timeStr[32];
     getTimeString(timeStr, sizeof(timeStr));
@@ -165,9 +185,12 @@ void setup() {
     initPowerManager();
 
     // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时休眠唤醒下获得有效数据，直接进入下一轮睡眠
-    if (isWakeFromSleep && gotFirst && (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
-        Serial.println("[Eco] Periodic sample rendered smoothly. Returning to Deep Sleep immediately.");
+    if (isTimerWake && (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
+        Serial.println("[Eco] Periodic timer sample rendered smoothly. Returning to Deep Sleep immediately.");
         executePowerSleep(true);
+    } else if (isButtonWake) {
+        // 用户按键主动唤醒：刷新活跃窗口，支持 30 秒内顺畅翻页与查看
+        notifyUserActivity();
     }
 }
 

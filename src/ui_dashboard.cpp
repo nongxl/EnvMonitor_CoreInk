@@ -25,9 +25,9 @@ static const ZoomLevel ZOOM_LEVELS[] = {
     {"7d",  604800, 86400}   // 7 天视窗 (平移步长 1 天 / 24 小时)
 };
 static const int ZOOM_COUNT = 8;
-static int s_zoomIdx = 1; // 默认 10m，开机立即可见细粒度动态曲线
-static ChartMode s_chartMode = CHART_MODE_ZOOM;
-static uint32_t s_panOffsetSec = 0;
+RTC_DATA_ATTR static int s_zoomIdx = 1; // 默认 10m，开机立即可见细粒度动态曲线
+RTC_DATA_ATTR static ChartMode s_chartMode = CHART_MODE_ZOOM;
+RTC_DATA_ATTR static uint32_t s_panOffsetSec = 0;
 static const uint32_t MAX_PAN_OFFSET_SEC = 604800; // 最多平移 7 天
 
 void chartToggleMode() {
@@ -75,7 +75,7 @@ ChartMode chartGetMode() {
     return s_chartMode;
 }
 
-static ActivePage s_activePage = PAGE_DASHBOARD;
+RTC_DATA_ATTR static ActivePage s_activePage = PAGE_DASHBOARD;
 
 void toggleActivePage() {
     if (s_activePage == PAGE_DASHBOARD) {
@@ -398,22 +398,29 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
         return chartLeft + (int)((float)(ts - windowStart) / (float)(windowEnd - windowStart) * chartW);
     };
 
-    // 绘制温湿度连续折线：温度用粗实线 (2px)，湿度用细虚线 (1px)
-    for (int i = 0; i < count; ++i) {
-        int x = mapTimeX(s_chartPoints[i].timestamp);
-        int yH = mapHumiY(s_chartPoints[i].humi);
-        int yT = mapTempY(s_chartPoints[i].temp);
+    // 绘制温湿度连续折线：当只有 1 个点时绘制水平参考线；多点时绘制连续折线
+    if (count == 1) {
+        int yH = mapHumiY(s_chartPoints[0].humi);
+        int yT = mapTempY(s_chartPoints[0].temp);
+        s_sprite.drawFastHLine(chartLeft, yT, chartW, TFT_BLACK);
+        drawDashedLine(chartLeft, yH, chartRight, yH, 3, 2, TFT_BLACK);
+    } else {
+        for (int i = 0; i < count; ++i) {
+            int x = mapTimeX(s_chartPoints[i].timestamp);
+            int yH = mapHumiY(s_chartPoints[i].humi);
+            int yT = mapTempY(s_chartPoints[i].temp);
 
-        if (i > 0) {
-            int prevX = mapTimeX(s_chartPoints[i - 1].timestamp);
-            int prevYH = mapHumiY(s_chartPoints[i - 1].humi);
-            int prevYT = mapTempY(s_chartPoints[i - 1].temp);
+            if (i > 0) {
+                int prevX = mapTimeX(s_chartPoints[i - 1].timestamp);
+                int prevYH = mapHumiY(s_chartPoints[i - 1].humi);
+                int prevYT = mapTempY(s_chartPoints[i - 1].temp);
 
-            // 温度：黑色粗实线 (2px)
-            drawThickLine(prevX, prevYT, x, yT, 2, TFT_BLACK);
+                // 温度：黑色粗实线 (2px)
+                drawThickLine(prevX, prevYT, x, yT, 2, TFT_BLACK);
 
-            // 湿度：黑色细虚线 (1px)
-            drawDashedLine(prevX, prevYH, x, yH, 3, 2, TFT_BLACK);
+                // 湿度：黑色细虚线 (1px)
+                drawDashedLine(prevX, prevYH, x, yH, 3, 2, TFT_BLACK);
+            }
         }
     }
 

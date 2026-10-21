@@ -3,7 +3,7 @@
 #include <bsec.h>
 
 static Bsec iaqSensor;
-static EnvRecord s_latestRecord;
+RTC_DATA_ATTR static EnvRecord s_latestRecord;
 static bool s_sensorReady = false;
 static uint32_t s_lastRetryMs = 0;
 static uint8_t s_sensorI2cAddr = 0x77;
@@ -239,23 +239,30 @@ bool runBSEC(EnvRecord &outRecord) {
 }
 
 bool waitForFirstReading(EnvRecord &outRec, uint32_t timeoutMs) {
-    if (!s_sensorReady) return false;
-
-    // 先检查是否已有有效数据
-    if (s_latestRecord.temp != 0.0f || s_latestRecord.humi != 0.0f) {
-        outRec = s_latestRecord;
-        return true;
+    if (!s_sensorReady) {
+        if (s_latestRecord.temp != 0.0f || s_latestRecord.humi != 0.0f) {
+            outRec = s_latestRecord;
+            return true;
+        }
+        return false;
     }
 
-    Serial.printf("[BSEC] Waiting for first conversion (up to %u ms)...\n", timeoutMs);
+    Serial.printf("[BSEC] Waiting for conversion (up to %u ms)...\n", timeoutMs);
     uint32_t start = millis();
     while (millis() - start < timeoutMs) {
         if (runBSEC(outRec)) {
-            Serial.printf("[BSEC] First reading ready! T:%.1fC, H:%.1f%%, P:%.0fhPa, IAQ:%.0f\n",
+            Serial.printf("[BSEC] Fresh reading ready! T:%.1fC, H:%.1f%%, P:%.0fhPa, IAQ:%.0f\n",
                           outRec.temp, outRec.humi, outRec.press, outRec.iaq);
             return true;
         }
-        delay(100);
+        delay(50);
+    }
+
+    // 若本次等待超时，但 RTC 内存中有休眠前保持的有效读数，自动沿用，绝不返回无效数据！
+    if (s_latestRecord.temp != 0.0f || s_latestRecord.humi != 0.0f) {
+        Serial.println("[BSEC] Timed out, falling back to cached RTC reading.");
+        outRec = s_latestRecord;
+        return true;
     }
 
     Serial.println("[BSEC] First reading wait timeout, will update in background.");
