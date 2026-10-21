@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "battery.h"
 #include "sensor_bsec.h"
+#include "img_churchill.h"
 
 static Ink_Sprite s_sprite(&M5.M5Ink);
 static bool s_spriteCreated = false;
@@ -172,18 +173,18 @@ static void drawStatusBar(const char *timeStr) {
     char batPctStr[16];
     snprintf(batPctStr, sizeof(batPctStr), "%d", batPct); // 纯数字无百分号
 
-    // 电池图标：整体向左移避开物理黑边 (右端留 10px 边距，主体 X:162~188，端子 188~190)
-    const int batW = 26;
+    // 电池图标：整体向左移避开物理黑边 (右端留 10px 边距，主体 X:164~190，端子 190~192)
+    const int batW = 28;
     const int batH = 12;
-    const int batX = 188 - batW; // 162
+    const int batX = 192 - batW; // 164
     const int batY = 2;          // 上下各留 2px 优雅呼吸间距
 
     // 先用透明背景绘制文字，上下各留 2px 间隙绝不遮挡边线
     s_sprite.setTextColor(TFT_BLACK);
     int txtW = s_sprite.textWidth(batPctStr);
     int txtX = batX + (batW - txtW) / 2;
-    int txtY = batY + 2; // Y: 4 (文字高 8px，占据 Y:4~12，上下各有 2px 留白)
-    s_sprite.drawString(txtX, txtY, batPctStr);
+    int txtY = batY + 1; // Y: 4 (文字高 8px，占据 Y:4~12，上下各有 2px 留白)
+    s_sprite.drawString(txtX-3, txtY-1, batPctStr);
 
     // 后绘制电池外框与端子，确保线型 100% 连续锐利不被抹平
     s_sprite.drawRect(batX, batY, batW, batH, TFT_BLACK);
@@ -674,10 +675,10 @@ void renderPowerMenuOverlay(uint8_t selectedIndex) {
 
     // 4 项模式列表
     const char *options[4] = {
-        "1. Realtime  (~10h)",
-        "2. Balanced  (~6d)",
-        "3. Eco ULP   (~2mo)",
-        "4. On-Demand (Mos+)"
+        "1. Realtime  (3s)",
+        "2. Balanced  (1m)",
+        "3. Eco ULP   (10m)",
+        "4. On-Demand (G38)"
     };
 
     for (int i = 0; i < 4; ++i) {
@@ -725,6 +726,42 @@ void renderPowerMenuOverlay(uint8_t selectedIndex) {
     s_sprite.drawString(16, 154, desc[sel][2]);
 
     M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
+    s_sprite.pushSprite();
+}
+
+void renderSplashScreen(const char *statusMsg) {
+    if (!s_spriteCreated) {
+        initDashboard();
+    }
+
+    s_sprite.fillScreen(TFT_WHITE);
+    s_sprite.setTextColor(TFT_BLACK, TFT_WHITE);
+
+    // 1. 居中绘制丘吉尔抽雪茄经典剪影 (宽 128, 高 144)
+    int imgX = (200 - CHURCHILL_IMG_WIDTH) / 2; // X: 36
+    int imgY = 6;
+    s_sprite.drawXBitmap(imgX, imgY, CHURCHILL_IMG_BITS,
+                         CHURCHILL_IMG_WIDTH, CHURCHILL_IMG_HEIGHT,
+                         TFT_BLACK, TFT_WHITE);
+
+    // 2. 经典装饰双分割细线 (左右对称装饰)
+    s_sprite.drawFastHLine(14, 156, 36, TFT_BLACK);
+    s_sprite.drawFastHLine(150, 156, 36, TFT_BLACK);
+
+    // 3. 经典尊称标牌
+    s_sprite.setTextSize(1);
+    const char *title = "W. CHURCHILL";
+    int tw = s_sprite.textWidth(title);
+    s_sprite.drawString((200 - tw) / 2, 152, title);
+
+    // 4. 底部动态状态提示 (如 "Connecting Wi-Fi...")
+    if (statusMsg && statusMsg[0]) {
+        int sw = s_sprite.textWidth(statusMsg);
+        s_sprite.drawString((200 - sw) / 2, 174, statusMsg);
+    }
+
+    // 5. 高质量全刷上屏 (消除开机等待过程中的全黑与空白)
+    M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
     s_sprite.pushSprite();
 }
 

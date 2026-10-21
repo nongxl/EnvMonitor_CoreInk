@@ -67,3 +67,9 @@ ActivePage getActivePage();
  */
 void renderPowerMenuOverlay(uint8_t selectedIndex);
 
+/**
+ * @brief 渲染丘吉尔抽雪茄经典剪影开机画面 (消除 Wi-Fi 连接和启动过程中的黑屏)
+ * @param statusMsg 底部状态提示 (如 "Connecting Wi-Fi...")
+ */
+void renderSplashScreen(const char *statusMsg);
+

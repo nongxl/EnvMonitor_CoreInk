@@ -109,6 +109,9 @@ void setup() {
     // 4. Wi-Fi NTP 单次授时 (仅在冷启动非休眠唤醒时同步，节省深睡唤醒电量)
     esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
     if (wakeCause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        // ★ 立即呈现丘吉尔抽雪茄剪影画面，彻底消除等待 Wi-Fi 过程中的黑屏体验
+        renderSplashScreen("Connecting Wi-Fi...");
+
         syncNtpTime(8000);
     } else {
         Serial.printf("[RTC Boot] Woke from sleep (cause=%d), skipping Wi-Fi NTP.\n", (int)wakeCause);
