@@ -331,8 +331,31 @@ void loop() {
     // 后台传感器自愈重试
     checkAndRecoverSensor();
 
+    // 传感器采样时钟门控：严格按照当前电源模式配置的采样频率进行采样
+    PowerMode curMode = getPowerMode();
+    uint32_t sampleIntervalMs = 3000;
+    if (curMode == PWR_MODE_REALTIME) {
+        sampleIntervalMs = 3000;
+    } else if (curMode == PWR_MODE_BALANCED) {
+        sampleIntervalMs = 60000;
+    } else if (curMode == PWR_MODE_ECO) {
+        sampleIntervalMs = 600000;
+    } else if (curMode == PWR_MODE_MANUAL) {
+        sampleIntervalMs = 0xFFFFFFFF; // 手动模式仅长按 G38 按需单次采样，不自动周期采样
+    }
+
+    static uint32_t s_lastSampleTimeMs = 0;
     EnvRecord currentRec;
-    bool hasNewData = runBSEC(currentRec);
+    bool hasNewData = false;
+
+    if (curMode != PWR_MODE_MANUAL) {
+        if (s_lastSampleTimeMs == 0 || millis() - s_lastSampleTimeMs >= sampleIntervalMs) {
+            if (runBSEC(currentRec)) {
+                hasNewData = true;
+                s_lastSampleTimeMs = millis();
+            }
+        }
+    }
 
     // 获取当前 RTC 走时 (年月日 时分)
     RTC_TimeTypeDef curTime;
@@ -382,13 +405,12 @@ void loop() {
         s_lastMinute = curTime.Minutes;
         renderCurrentPage(currentRec, timeStr, false);
         s_firstDataRendered = true;
-    } else if (getPowerMode() == PWR_MODE_REALTIME && hasNewData) {
-        // 模式 1 (Realtime 极速模式)：有新采样即时快速刷新 (3秒级)
+    } else if (hasNewData) {
+        // 模式 1 (3秒) / 模式 2 (1分钟) / 模式 3 (10分钟)：新采样到达时即时刷新上屏
         s_lastMinute = curTime.Minutes;
         renderCurrentPage(currentRec, timeStr, false);
     } else if (curTime.Minutes != s_lastMinute) {
-        // 模式 2 (Balanced 均衡模式) / 模式 3 / 4：
-        // 每整分钟随时间跳动整屏同步刷新一次
+        // 每整分钟随时间跳动整屏同步刷新一次时钟
         s_lastMinute = curTime.Minutes;
         EnvRecord recToRender = isSensorReady() ? getLatestEnvRecord() : currentRec;
         renderCurrentPage(recToRender, timeStr, false);

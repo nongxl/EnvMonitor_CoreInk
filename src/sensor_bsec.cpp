@@ -228,12 +228,14 @@ bool runBSEC(EnvRecord &outRecord) {
         return true;
     }
 
-    // 诊断：每 5 秒打印一次底层状态码
-    static uint32_t s_lastDiagMs = 0;
-    if (millis() - s_lastDiagMs >= 5000) {
-        s_lastDiagMs = millis();
-        Serial.printf("[BSEC Diag] bsecStatus=%d bme68xStatus=%d\n",
-                      (int)iaqSensor.bsecStatus, (int)iaqSensor.bme68xStatus);
+    // 诊断：仅在出现异常状态码时才打印，避免正常运行时频繁刷屏
+    if (iaqSensor.bsecStatus < BSEC_OK || iaqSensor.bme68xStatus != BME68X_OK) {
+        static uint32_t s_lastDiagMs = 0;
+        if (millis() - s_lastDiagMs >= 5000) {
+            s_lastDiagMs = millis();
+            Serial.printf("[BSEC Diag Error] bsecStatus=%d bme68xStatus=%d\n",
+                          (int)iaqSensor.bsecStatus, (int)iaqSensor.bme68xStatus);
+        }
     }
     return false;
 }

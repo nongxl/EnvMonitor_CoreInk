@@ -141,8 +141,8 @@ void executePowerSleep(bool hasRenderedData) {
             gpio_wakeup_enable((gpio_num_t)39, GPIO_INTR_LOW_LEVEL);
             esp_sleep_enable_gpio_wakeup();
 
-            // 3. 定时低频唤醒 (3秒周期)：与 BSEC 传感器低频采样节拍同步，整机 99% 的时间挂起在浅睡眠中
-            esp_sleep_enable_timer_wakeup(3ULL * 1000000ULL);
+            // 3. 定时低频唤醒 (1分钟/60秒周期)：与 1 分钟采样节拍同步，整机 99% 的时间挂起在浅睡眠中
+            esp_sleep_enable_timer_wakeup(60ULL * 1000000ULL);
 
             esp_light_sleep_start();
             break;
