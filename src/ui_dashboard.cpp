@@ -165,13 +165,18 @@ static void drawStatusBar(const char *timeStr) {
 
     int batPct = getBatteryPercentage();
     char batPctStr[16];
-    snprintf(batPctStr, sizeof(batPctStr), "%d%%", batPct);
+    snprintf(batPctStr, sizeof(batPctStr), "%d", batPct); // 去除百分比符号
 
-    s_sprite.drawRect(154, 1, 42, 12, TFT_BLACK);
-    s_sprite.fillRect(196, 4, 2, 6, TFT_BLACK); // 电池正极端子
+    // 电量图标：缩短三分之一 (42 -> 28px)，加高 2px (12 -> 14px)
+    const int batX = 168;
+    const int batY = 1;
+    const int batW = 28;
+    const int batH = 14;
+    s_sprite.drawRect(batX, batY, batW, batH, TFT_BLACK);
+    s_sprite.fillRect(196, 4, 2, 8, TFT_BLACK); // 电池正极端子
     int txtW = s_sprite.textWidth(batPctStr);
-    int txtX = 154 + (42 - txtW) / 2;
-    s_sprite.drawString(txtX, 2, batPctStr);
+    int txtX = batX + (batW - txtW) / 2;
+    s_sprite.drawString(txtX, 0, batPctStr); // 数值向上移动 2px (2 -> 0)
 
     // 状态栏底部分割细线
     s_sprite.drawFastHLine(0, 16, 200, TFT_BLACK);
