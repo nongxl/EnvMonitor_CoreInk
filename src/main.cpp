@@ -329,16 +329,23 @@ void loop() {
         }
 
         s_lastHour = curTime.Hours;
+        s_lastMinute = curTime.Minutes;
         s_lastHourlySaveMs = millis();
-    } else if (hasNewData) {
-        // 有新采样：整帧快速刷新 (无闪烁)，同时带上最新时间
+    } else if (hasNewData && !s_firstDataRendered) {
+        // 开机首包数据就绪：立即刷新上屏
         s_lastMinute = curTime.Minutes;
         renderCurrentPage(currentRec, timeStr, false);
         s_firstDataRendered = true;
-    } else if (curTime.Minutes != s_lastMinute) {
-        // 每分钟：仅局部刷新顶部状态栏 (时间/电池)，其余区域不动
+    } else if (getPowerMode() == PWR_MODE_REALTIME && hasNewData) {
+        // 模式 1 (Realtime 极速模式)：有新采样即时快速刷新 (3秒/次)
         s_lastMinute = curTime.Minutes;
-        renderStatusBarOnly(timeStr);
+        renderCurrentPage(currentRec, timeStr, false);
+    } else if (curTime.Minutes != s_lastMinute) {
+        // 模式 2 (Balanced 均衡模式) / 模式 3 / 4：
+        // 方案 A (解耦防抖)：每整分钟随时间跳动整屏同步刷新一次 (温湿度/气压/IAQ/时间统一刷新，大幅降低墨水屏功耗)
+        s_lastMinute = curTime.Minutes;
+        EnvRecord recToRender = isSensorReady() ? getLatestEnvRecord() : currentRec;
+        renderCurrentPage(recToRender, timeStr, false);
     }
 
     // 电源管理与休眠调度 (Light-Sleep / Deep-Sleep / delay)
