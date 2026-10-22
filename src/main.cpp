@@ -367,12 +367,15 @@ void loop() {
     char timeStr[32];
     getTimeString(timeStr, sizeof(timeStr));
 
-    // 新的 BSEC 采样到达时：持续记录至高精实时环形缓冲 (每 10 秒存 1 点)
+    // 新的 BSEC 采样到达时：持续记录至高精实时环形缓冲
+    // - 极速模式(3秒)：每 30 秒存 1 点 (120点覆盖完整 60 分钟 1h 视窗)
+    // - 均衡/长效模式：每次新采样到达即存 1 点 (120点覆盖 2 小时)
     static uint32_t s_lastRecentRecordMs = 0;
     if (hasNewData) {
         Serial.printf("[Sensor] T:%.1fC, H:%.1f%%, P:%.0fhPa, IAQ:%.0f, eCO2:%.0fppm\n",
                       currentRec.temp, currentRec.humi, currentRec.press, currentRec.iaq, currentRec.eco2);
-        if (s_lastRecentRecordMs == 0 || millis() - s_lastRecentRecordMs >= 10000UL) {
+        uint32_t minStoreIntervalMs = (getPowerMode() == PWR_MODE_REALTIME) ? 30000UL : 50000UL;
+        if (s_lastRecentRecordMs == 0 || millis() - s_lastRecentRecordMs >= minStoreIntervalMs) {
             s_lastRecentRecordMs = millis();
             appendRecentRecord(currentRec);
         }

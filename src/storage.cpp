@@ -1,4 +1,4 @@
-﻿#include "storage.h"
+#include "storage.h"
 #include <Preferences.h>
 #include <time.h>
 #include <M5CoreInk.h>
@@ -190,23 +190,21 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
         }
     }
 
-    // 2. 从 RTC 保持的高频采样缓冲中筛选
+    // 2. 从 RTC 保持的高频采样缓冲中筛选 (全部收集，不提前做错误的比对)
     if (s_recentCount > 0) {
         uint16_t startIdx = (s_recentHead + MAX_RECENT_RECORDS - s_recentCount) % MAX_RECENT_RECORDS;
         for (uint16_t i = 0; i < s_recentCount && collected < maxLen; ++i) {
             const EnvRecord &r = s_recent[(startIdx + i) % MAX_RECENT_RECORDS];
             if (r.timestamp >= windowStart && r.timestamp <= windowEnd) {
-                // 如果与最近已添加的点时间过近(<= 3秒)，跳过冗余点
-                if (collected > 0 && r.timestamp <= outArray[collected - 1].timestamp + 3) {
-                    continue;
-                }
                 outArray[collected++] = r;
             }
         }
     }
 
-    // 3. 排序 (快速单调递增保证)
-    for (uint16_t i = 0; i < collected; ++i) {
+    if (collected == 0) return 0;
+
+    // 3. 严格按时间戳单调升序排序
+    for (uint16_t i = 0; i < collected - 1; ++i) {
         for (uint16_t j = i + 1; j < collected; ++j) {
             if (outArray[j].timestamp < outArray[i].timestamp) {
                 EnvRecord tmp = outArray[i];
@@ -216,7 +214,15 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
         }
     }
 
-    return collected;
+    // 4. 排序后去除紧邻的重复或冗余采样点 (时间差 <= 3秒的相邻点只保留 1 个)
+    uint16_t uniqueCount = 1;
+    for (uint16_t i = 1; i < collected; ++i) {
+        if (outArray[i].timestamp > outArray[uniqueCount - 1].timestamp + 3) {
+            outArray[uniqueCount++] = outArray[i];
+        }
+    }
+
+    return uniqueCount;
 }
 
 uint16_t getHistoryCount() {
