@@ -191,9 +191,9 @@ static void drawStatusBar(const char *timeStr) {
     const char *actualTimeStr = timeStr ? timeStr : "----/--/-- --:--";
     s_sprite.drawString(2, 2, actualTimeStr);
 
-    // 若处于 Deep Sleep 休眠状态，在时间右侧显示黑色 zZ 标记 (固定位于 X:148，与时间文字保持充裕间距，绝不遮挡时间)
+    // 若处于 Deep Sleep 休眠状态，在时间右侧显示黑色 zZ 标记 (固定位于 X:143，与时间文字及电池保持黄金留白)
     if (s_isSleeping) {
-        s_sprite.drawString(148, 2, "zZ");
+        s_sprite.drawString(143, 2, "zZ");
     }
 
     int batPct = getBatteryPercentage();
@@ -341,7 +341,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     s_sprite.drawString(chartRight + 4, chartBottom - 10, "30");
 
     // 右上角图例 (黑字白底：T- 温度实线，H.. 湿度虚线)
-    s_sprite.drawString(chartRight - 44, chartTop + 2, "T- H..");
+    s_sprite.drawString(chartRight - 48, chartTop + 2, "T- H..");
 
     // 模式与视窗状态标签 (移动到横坐标轴中间下方展示)
     char modeTag[32];

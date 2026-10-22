@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <M5CoreInk.h>
+#include <driver/rtc_io.h>
 
 #include "model.h"
 #include "time_sync.h"
@@ -98,9 +99,11 @@ static void renderCurrentPage(const EnvRecord &rec, const char *timeStr, bool fu
 void setup() {
     // 1. 硬件初始化 & 供电引脚持续拉高 (GPIO 12)
     M5.begin(true, true, false);
+    rtc_gpio_hold_dis(GPIO_NUM_12);            // 解除上一次深度睡眠的 RTC 硬件锁存
+    gpio_hold_dis((gpio_num_t)POWER_HOLD_PIN); // 解除数字 GPIO 锁存
     pinMode(POWER_HOLD_PIN, OUTPUT);
     digitalWrite(POWER_HOLD_PIN, HIGH);
-    gpio_hold_dis((gpio_num_t)POWER_HOLD_PIN); // 解除上一次深度睡眠的硬件锁存
+    M5.rtc.clearIRQ();                          // 清除 BM8563 硬件 RTC 中断标志
 
     // 彻底熄灭 CoreInk 绿色外设指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
     pinMode(LED_EXT_PIN, OUTPUT);

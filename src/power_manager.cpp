@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include <M5CoreInk.h>
 #include <esp_sleep.h>
+#include <driver/rtc_io.h>
 #include <bsec.h>
 
 #include "sensor_bsec.h"
@@ -171,17 +172,25 @@ void executePowerSleep(bool hasRenderedData) {
             digitalWrite(10, HIGH);
             M5.M5Ink.deepSleep();
 
-            // 锁存电源引脚 (GPIO 12)，防止休眠期间切断电池供电
-            pinMode(12, OUTPUT);
-            digitalWrite(12, HIGH);
-            gpio_hold_en((gpio_num_t)12);
+            // 1. 设置片外独立硬件 RTC 芯片 (BM8563) 10 分钟定时闹钟 (硬件级双重保险唤醒)
+            M5.rtc.clearIRQ();
+            M5.rtc.SetAlarmIRQ(600);
+
+            // 2. 关键：使用 RTC IO 控制器在 Deep Sleep 期间硬件锁存 GPIO 12 为高电平，保持 3.3V 电池供电不断电！
+            rtc_gpio_init(GPIO_NUM_12);
+            rtc_gpio_set_direction(GPIO_NUM_12, RTC_GPIO_MODE_OUTPUT_ONLY);
+            rtc_gpio_set_level(GPIO_NUM_12, 1);
+            rtc_gpio_hold_en(GPIO_NUM_12);
             gpio_deep_sleep_hold_en();
             delay(20);
 
-            // 10 分钟定时唤醒 (600秒)
-            esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
-            // G38 中键按键唤醒 (RTC IO 2，低电平触发)
+            // 3. 配置按键唤醒引脚 (G38 滚轮按键与 G27 电源键)：
+            rtc_gpio_init(GPIO_NUM_38);
+            rtc_gpio_set_direction(GPIO_NUM_38, RTC_GPIO_MODE_INPUT_ONLY);
             esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
+
+            // 4. ESP32 内部 10 分钟定时唤醒 (600秒)
+            esp_sleep_enable_timer_wakeup(600ULL * 1000000ULL);
             esp_deep_sleep_start();
             break;
         }
@@ -207,12 +216,16 @@ void executePowerSleep(bool hasRenderedData) {
             digitalWrite(10, HIGH);
             M5.M5Ink.deepSleep();
 
-            pinMode(12, OUTPUT);
-            digitalWrite(12, HIGH);
-            gpio_hold_en((gpio_num_t)12);
+            // 使用 RTC IO 控制器硬件锁存电源引脚 (GPIO 12)
+            rtc_gpio_init(GPIO_NUM_12);
+            rtc_gpio_set_direction(GPIO_NUM_12, RTC_GPIO_MODE_OUTPUT_ONLY);
+            rtc_gpio_set_level(GPIO_NUM_12, 1);
+            rtc_gpio_hold_en(GPIO_NUM_12);
             gpio_deep_sleep_hold_en();
             delay(20);
 
+            rtc_gpio_init(GPIO_NUM_38);
+            rtc_gpio_set_direction(GPIO_NUM_38, RTC_GPIO_MODE_INPUT_ONLY);
             esp_sleep_enable_ext0_wakeup((gpio_num_t)38, 0);
             esp_deep_sleep_start();
             break;
