@@ -197,7 +197,9 @@ void executePowerSleep(bool hasRenderedData) {
             // 彻底关闭外设，熄灭绿色指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);
-            M5.M5Ink.deepSleep();
+            // 关键：仅关闭高压电荷泵(powerHVOFF)，绝不可发送 0x07,0xA5 DeepSleep 指令！
+            // 否则墨水屏驱动芯片内部显存 RAM 将被全清，唤醒时被迫执行硬件 RST 与全屏黑闪！
+            M5.M5Ink.powerHVOFF();
 
             // 1. 清除并禁用片外独立硬件 RTC 芯片 (BM8563) 定时中断，防止误触发硬件电源回路复位
             M5.rtc.clearIRQ();
@@ -242,7 +244,7 @@ void executePowerSleep(bool hasRenderedData) {
 
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);
-            M5.M5Ink.deepSleep();
+            M5.M5Ink.powerHVOFF();
 
             M5.rtc.clearIRQ();
             M5.rtc.disableIRQ();
