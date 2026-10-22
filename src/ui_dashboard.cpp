@@ -311,34 +311,129 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // 标尺设定：双刻度大跨度全天候模式 (跨度均为 60)
     // 温度：-20 ~ 40 (跨度 60) -> 对应左 Y 轴 (实线)
     // 湿度： 30 ~ 90 (跨度 60) -> 对应右 Y 轴 (虚线)
-    // 黄金基准线：75% 高度处，对应温度 25°C 与参考湿度 75%
     const float tempMin = -20.0f, tempMax = 40.0f;
     const float humiMin = 30.0f, humiMax = 90.0f;
-    const float refRatio = 0.75f;
 
-    int targetY = chartBottom - (int)(refRatio * chartH);
-    drawDashedHLine(chartLeft, targetY, chartW, 2, 2, TFT_BLACK);
+    // 1. 获取当前时间与视窗跨度 [windowStart, windowEnd]
+    uint32_t nowSec = getSystemTimestamp();
+    uint32_t windowEnd = (nowSec >= s_panOffsetSec) ? (nowSec - s_panOffsetSec) : nowSec;
+    uint32_t windowSpan = ZOOM_LEVELS[s_zoomIdx].durationSec;
+    uint32_t windowStart = (windowEnd >= windowSpan) ? (windowEnd - windowSpan) : 0;
+
+    auto mapHumiY = [&](float h) -> int {
+        if (h < humiMin) h = humiMin;
+        if (h > humiMax) h = humiMax;
+        return chartBottom - (int)((h - humiMin) / (humiMax - humiMin) * chartH);
+    };
+
+    auto mapTempY = [&](float t) -> int {
+        if (t < tempMin) t = tempMin;
+        if (t > tempMax) t = tempMax;
+        return chartBottom - (int)((t - tempMin) / (tempMax - tempMin) * chartH);
+    };
+
+    auto mapTimeX = [&](uint32_t ts) -> int {
+        if (ts <= windowStart) return chartLeft;
+        if (ts >= windowEnd) return chartRight;
+        return chartLeft + (int)((float)(ts - windowStart) / (float)(windowEnd - windowStart) * chartW);
+    };
 
     // 辅助 lambda：绘制左侧纯数字温度刻度 (无单位，右对齐于 chartLeft - 2，做非负截断防裁剪)
     auto drawLeftTempTick = [&](int y, const char *numStr) {
         s_sprite.setTextSize(1);
-        int nw = s_sprite.textWidth(numStr, &fonts::AsciiFont8x16);
-        if (nw <= 0) nw = strlen(numStr) * 8;
+        int nw = s_sprite.textWidth(numStr);
+        if (nw <= 0) nw = strlen(numStr) * 6;
         int numX = (chartLeft - 2) - nw;
         if (numX < 0) numX = 0;
         s_sprite.drawString(numX, y, numStr);
     };
 
-    // 左侧刻度文字：温度 (-20 ~ 40 纯数字)
-    drawLeftTempTick(chartTop - 2, "40");
-    drawLeftTempTick(targetY - 4, "25");
-    drawLeftTempTick(chartBottom - 10, "-20");
+    // 2. 获取视窗内数据 (高频采样 + 历史整点，静态缓冲区支持至 7 天 256 点)
+    static EnvRecord s_chartPoints[256];
+    uint16_t count = getRecordsInWindow(s_chartPoints, 256, windowStart, windowEnd);
 
-    // 右侧刻度文字：湿度 (30 ~ 90 纯数字，黑字白底)
+    // 若视窗内暂无历史点，且位于当前最新视窗，则以当前读数作为首个数据点
+    if (count == 0 && hasValidData && s_panOffsetSec == 0) {
+        s_chartPoints[0] = current;
+        s_chartPoints[0].timestamp = nowSec;
+        count = 1;
+    }
+
+    // 2. 统计当前视窗内线条的最高与最低点 (用于纵轴中间动态刻度展示)
+    float curMinTemp = 999.0f, curMaxTemp = -999.0f;
+    float curMinHumi = 999.0f, curMaxHumi = -999.0f;
+    for (uint16_t i = 0; i < count; ++i) {
+        float t = s_chartPoints[i].temp;
+        float h = s_chartPoints[i].humi;
+        if (t < curMinTemp) curMinTemp = t;
+        if (t > curMaxTemp) curMaxTemp = t;
+        if (h < curMinHumi) curMinHumi = h;
+        if (h > curMaxHumi) curMaxHumi = h;
+    }
+
+    // 3. 左侧温度轴刻度：两端标出量程 (40 和 -20)，中间显示折线最高与最低点
+    drawLeftTempTick(chartTop - 2, "40");
+    drawLeftTempTick(chartBottom - 8, "-20");
+
+    if (count > 0 && curMaxTemp > -900.0f) {
+        char maxTStr[16], minTStr[16];
+        if (curMaxTemp - curMinTemp < 3.0f) {
+            snprintf(maxTStr, sizeof(maxTStr), "%.1f", curMaxTemp);
+            snprintf(minTStr, sizeof(minTStr), "%.1f", curMinTemp);
+        } else {
+            snprintf(maxTStr, sizeof(maxTStr), "%.0f", curMaxTemp);
+            snprintf(minTStr, sizeof(minTStr), "%.0f", curMinTemp);
+        }
+
+        int yTMax = mapTempY(curMaxTemp);
+        int yTMin = mapTempY(curMinTemp);
+
+        // 避免与顶部量程 40 和底部量程 -20 发生文字重叠
+        if (yTMax < chartTop + 9) yTMax = chartTop + 9;
+        if (yTMin > chartBottom - 16) yTMin = chartBottom - 16;
+
+        if (yTMin - yTMax < 9) {
+            // 最高温与最低温重合或极近，显示单个刻度
+            s_sprite.drawFastHLine(chartLeft - 3, yTMax, 3, TFT_BLACK);
+            drawLeftTempTick(yTMax - 4, maxTStr);
+        } else {
+            s_sprite.drawFastHLine(chartLeft - 3, yTMax, 3, TFT_BLACK);
+            drawLeftTempTick(yTMax - 4, maxTStr);
+
+            s_sprite.drawFastHLine(chartLeft - 3, yTMin, 3, TFT_BLACK);
+            drawLeftTempTick(yTMin - 4, minTStr);
+        }
+    }
+
+    // 4. 右侧湿度轴刻度：两端标出量程 (90 和 30)，中间显示折线最高与最低点
     s_sprite.setTextSize(1);
     s_sprite.drawString(chartRight + 4, chartTop - 2, "90");
-    s_sprite.drawString(chartRight + 4, targetY - 4, "75");
-    s_sprite.drawString(chartRight + 4, chartBottom - 10, "30");
+    s_sprite.drawString(chartRight + 4, chartBottom - 8, "30");
+
+    if (count > 0 && curMaxHumi > -900.0f) {
+        char maxHStr[16], minHStr[16];
+        snprintf(maxHStr, sizeof(maxHStr), "%.0f", curMaxHumi);
+        snprintf(minHStr, sizeof(minHStr), "%.0f", curMinHumi);
+
+        int yHMax = mapHumiY(curMaxHumi);
+        int yHMin = mapHumiY(curMinHumi);
+
+        // 避免与顶部量程 90 和底部量程 30 发生文字重叠
+        if (yHMax < chartTop + 9) yHMax = chartTop + 9;
+        if (yHMin > chartBottom - 16) yHMin = chartBottom - 16;
+
+        if (yHMin - yHMax < 9) {
+            // 最高与最低湿度重合或极近，显示单个刻度
+            s_sprite.drawFastHLine(chartRight, yHMax, 3, TFT_BLACK);
+            s_sprite.drawString(chartRight + 4, yHMax - 4, maxHStr);
+        } else {
+            s_sprite.drawFastHLine(chartRight, yHMax, 3, TFT_BLACK);
+            s_sprite.drawString(chartRight + 4, yHMax - 4, maxHStr);
+
+            s_sprite.drawFastHLine(chartRight, yHMin, 3, TFT_BLACK);
+            s_sprite.drawString(chartRight + 4, yHMin - 4, minHStr);
+        }
+    }
 
     // 右上角图例 (黑字白底：T- 温度实线，H.. 湿度虚线)
     s_sprite.drawString(chartRight - 48, chartTop + 2, "T- H..");
@@ -358,12 +453,6 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
             snprintf(modeTag, sizeof(modeTag), "[PAN:-%.1fd]", (float)s_panOffsetSec / 86400.0f);
         }
     }
-
-    // 计算当前时间视窗 [windowStart, windowEnd]
-    uint32_t nowSec = getSystemTimestamp();
-    uint32_t windowEnd = (nowSec >= s_panOffsetSec) ? (nowSec - s_panOffsetSec) : nowSec;
-    uint32_t windowSpan = ZOOM_LEVELS[s_zoomIdx].durationSec;
-    uint32_t windowStart = (windowEnd >= windowSpan) ? (windowEnd - windowSpan) : 0;
 
     // 底部时间刻度与居中模式控件 (位于 X 轴下方 Y: 131)
     char leftTimeStr[16];
@@ -394,35 +483,6 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     int rtW = s_sprite.textWidth(rightTimeStr, &fonts::AsciiFont8x16);
     if (rtW <= 0) rtW = strlen(rightTimeStr) * 8;
     s_sprite.drawString(chartRight - rtW, chartBottom + 3, rightTimeStr);
-
-    // 获取视窗内数据 (高频采样 + 历史整点，静态缓冲区支持至 7 天 256 点)
-    static EnvRecord s_chartPoints[256];
-    uint16_t count = getRecordsInWindow(s_chartPoints, 256, windowStart, windowEnd);
-
-    // 若视窗内暂无历史点，且位于当前最新视窗，则以当前读数作为首个数据点
-    if (count == 0 && hasValidData && s_panOffsetSec == 0) {
-        s_chartPoints[0] = current;
-        s_chartPoints[0].timestamp = nowSec;
-        count = 1;
-    }
-
-    auto mapHumiY = [&](float h) -> int {
-        if (h < humiMin) h = humiMin;
-        if (h > humiMax) h = humiMax;
-        return chartBottom - (int)((h - humiMin) / (humiMax - humiMin) * chartH);
-    };
-
-    auto mapTempY = [&](float t) -> int {
-        if (t < tempMin) t = tempMin;
-        if (t > tempMax) t = tempMax;
-        return chartBottom - (int)((t - tempMin) / (tempMax - tempMin) * chartH);
-    };
-
-    auto mapTimeX = [&](uint32_t ts) -> int {
-        if (ts <= windowStart) return chartLeft;
-        if (ts >= windowEnd) return chartRight;
-        return chartLeft + (int)((float)(ts - windowStart) / (float)(windowEnd - windowStart) * chartW);
-    };
 
     // 绘制温湿度连续折线：当只有 1 个点时绘制水平参考线；多点时绘制连续折线
     if (count == 1) {
