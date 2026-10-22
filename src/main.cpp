@@ -100,49 +100,6 @@ static void renderCurrentPage(const EnvRecord &rec, const char *timeStr, bool fu
     }
 }
 
-#include <lgfx/v1/panel/Panel_GDEW0154M09.hpp>
-
-class InkDeviceFast : public Ink_eSPI {
-public:
-    static bool initFast(Ink_eSPI *ink, lgfx::Panel_Device *panel) {
-        ink->setPanel(panel);
-        // 调用设备基类 init_impl(use_reset=false, use_clear=false)，彻底消除硬件 RST 电平和 clear() 闪屏
-        return static_cast<InkDeviceFast*>(ink)->LGFX_Device::init_impl(false, false);
-    }
-};
-
-static void initDisplayFastWake() {
-    auto bus_spi = new lgfx::Bus_SPI();
-    auto bus_cfg = bus_spi->config();
-    bus_cfg.spi_host    = SPI3_HOST; // 关键：CoreInk 墨水屏连接在 VSPI (SPI3_HOST)，必须显式指定！
-    bus_cfg.freq_write  = 40000000;
-    bus_cfg.freq_read   = 16000000;
-    bus_cfg.pin_mosi    = GPIO_NUM_23;
-    bus_cfg.pin_miso    = GPIO_NUM_34;
-    bus_cfg.pin_sclk    = GPIO_NUM_18;
-    bus_cfg.pin_dc      = GPIO_NUM_15;
-    bus_cfg.spi_3wire   = true;
-    bus_cfg.use_lock    = true;
-    bus_cfg.dma_channel = 1;
-    bus_spi->config(bus_cfg);
-    bus_spi->init();
-
-    auto p = new lgfx::Panel_GDEW0154M09();
-    p->bus(bus_spi);
-    auto cfg = p->config();
-    cfg.panel_height = 200;
-    cfg.panel_width  = 200;
-    cfg.pin_cs   = GPIO_NUM_9;
-    cfg.pin_rst  = GPIO_NUM_0;
-    cfg.pin_busy = GPIO_NUM_4;
-    p->config(cfg);
-
-    InkDeviceFast::initFast(&M5.M5Ink, p);
-    M5.M5Ink.powerHVON();
-    M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
-    M5.M5Ink.invertDisplay(false);
-}
-
 void setup() {
     // 检查唤醒原因与休眠周期状态：区别对待冷启动、定时器静默唤醒与按键交互唤醒
     esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
@@ -153,9 +110,13 @@ void setup() {
 
     // 1. 硬件初始化 & 供电引脚持续拉高 (GPIO 12)
     if (isWakeFromSleep) {
-        // 核心修复：睡眠唤醒时直接调用 initDisplayFastWake()，彻底消除黑白全屏闪烁！
+        // 核心修复：睡眠唤醒时跳过 InkEnable（避免 clear(TFT_BLACK) 全黑闪屏），
+        // 并通过 init_without_reset(false) 自动检测面板型号(D67/M09)并平滑建立驱动管线，彻底消除黑白闪屏与画面冻结！
         M5.begin(false, true, false);
-        initDisplayFastWake();
+        M5.M5Ink.init_without_reset(false);
+        M5.M5Ink.powerHVON();
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
+        M5.M5Ink.invertDisplay(false);
     } else {
         // 冷启动开机：全量硬件初始化，正向显示白底黑字
         M5.begin(true, true, false);
