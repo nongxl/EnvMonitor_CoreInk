@@ -139,7 +139,7 @@ void notifyUserActivity() {
     s_lastUserActionMs = millis();
 }
 
-void executePowerSleep(bool hasRenderedData) {
+void executePowerSleep(bool forceSleep) {
     if (s_menuOpen) {
         delay(20);
         return;
@@ -176,13 +176,13 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_ECO: {
-            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 必须保持清醒响应操作！
-            if (millis() - s_lastUserActionMs < 30000) {
+            // 如果不是强制静默休眠，则检查用户操作活跃期 (按键/旋钮操作后的 30 秒内保持清醒响应操作)
+            if (!forceSleep && (millis() - s_lastUserActionMs < 30000)) {
                 delay(20);
                 break;
             }
 
-            // 无操作超过 30 秒，立即进入 10 分钟 Deep-Sleep
+            // 无操作超过 30 秒或静默周期唤醒完成，立即进入 10 分钟 Deep-Sleep
             Serial.println("[Power] Eco Mode: Entering 10-min Deep Sleep...");
             setInDeepSleepCycle(true);
             saveBsecState();
@@ -192,7 +192,8 @@ void executePowerSleep(bool hasRenderedData) {
             showSleepIndicator(true);
 
             // 等待墨水屏最后一次刷屏动作物理完成，彻底防止画面冻结
-            delay(400);
+            M5.M5Ink.waitDisplay();
+            delay(100);
 
             // 彻底关闭外设，熄灭绿色指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
             pinMode(10, OUTPUT);
@@ -225,8 +226,7 @@ void executePowerSleep(bool hasRenderedData) {
         }
 
         case PWR_MODE_MANUAL: {
-            // 用户操作活跃期内 (按键/旋钮操作后的 30 秒内) 必须保持清醒响应操作！
-            if (millis() - s_lastUserActionMs < 30000) {
+            if (!forceSleep && (millis() - s_lastUserActionMs < 30000)) {
                 delay(20);
                 break;
             }
@@ -240,7 +240,8 @@ void executePowerSleep(bool hasRenderedData) {
             showSleepIndicator(true);
 
             // 等待墨水屏最后一次刷屏动作物理完成
-            delay(400);
+            M5.M5Ink.waitDisplay();
+            delay(100);
 
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);

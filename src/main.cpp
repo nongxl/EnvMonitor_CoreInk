@@ -114,13 +114,16 @@ public:
 static void initDisplayFastWake() {
     auto bus_spi = new lgfx::Bus_SPI();
     auto bus_cfg = bus_spi->config();
-    bus_cfg.pin_mosi = GPIO_NUM_23;
-    bus_cfg.pin_miso = GPIO_NUM_34;
-    bus_cfg.pin_sclk = GPIO_NUM_18;
-    bus_cfg.pin_dc   = GPIO_NUM_15;
-    bus_cfg.spi_3wire = true;
-    bus_cfg.freq_write = 40000000;
-    bus_cfg.freq_read  = 16000000;
+    bus_cfg.spi_host    = SPI3_HOST; // 关键：CoreInk 墨水屏连接在 VSPI (SPI3_HOST)，必须显式指定！
+    bus_cfg.freq_write  = 40000000;
+    bus_cfg.freq_read   = 16000000;
+    bus_cfg.pin_mosi    = GPIO_NUM_23;
+    bus_cfg.pin_miso    = GPIO_NUM_34;
+    bus_cfg.pin_sclk    = GPIO_NUM_18;
+    bus_cfg.pin_dc      = GPIO_NUM_15;
+    bus_cfg.spi_3wire   = true;
+    bus_cfg.use_lock    = true;
+    bus_cfg.dma_channel = 1;
     bus_spi->config(bus_cfg);
     bus_spi->init();
 
@@ -244,16 +247,16 @@ void setup() {
     // - 冷启动上电：全刷清除残影 (fullRefresh = true)
     // - 周期唤醒 / 按键唤醒：快速局部无闪刷新 (fullRefresh = false)，绝不闪黑白全屏！
     renderCurrentPage(initialRec, timeStr, !isWakeFromSleep);
+    M5.M5Ink.waitDisplay(); // 确保墨水屏电荷泵完全将画面写入
 
     // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
     initPowerManager();
 
     // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时器静默周期唤醒下：
-    // 数据刷新完毕后，延时等待墨水屏刷屏完成，安然进入下一轮休眠
+    // 数据刷新完毕后，强制立即进入下一轮休眠，避免等待30秒
     if ((isTimerWake || !isButtonWake) && isWakeFromSleep &&
         (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
         Serial.println("[Eco] Periodic timer sample rendered smoothly. Returning to Deep Sleep immediately.");
-        delay(400);
         executePowerSleep(true);
     } else {
         // 冷启动开机或用户按键唤醒：刷新活跃窗口，支持 30 秒内顺畅翻页与查看
@@ -484,5 +487,5 @@ void loop() {
     }
 
     // 电源管理与休眠调度 (Light-Sleep / Deep-Sleep / delay)
-    executePowerSleep(hasNewData || isHourlyTrigger);
+    executePowerSleep(false);
 }

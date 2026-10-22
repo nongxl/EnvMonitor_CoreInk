@@ -23,8 +23,8 @@ void powerMenuHandleDown();
 void powerMenuHandleConfirm();
 void renderPowerMenu();
 
-// 睡眠调度与进入休眠
-void executePowerSleep(bool hasRenderedData = false);
+// 睡眠调度与进入休眠 (forceSleep = true 用于定时器静默唤醒测完后强制立即休眠，跳过30秒活跃窗口)
+void executePowerSleep(bool forceSleep = false);
 
 /**
  * @brief 通知电源管理器当前有用户按键活动，刷新活跃窗口防止误休眠
