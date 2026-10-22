@@ -39,6 +39,9 @@ static void powerOffDevice() {
     Serial.println("[Power] Powering off: Screen content preserved, cutting battery latch.");
     Serial.println("========================================");
 
+    // 0. 重置休眠循环标志
+    setInDeepSleepCycle(false);
+
     // 1. 保存当前历史数据到 NVS
     flushStorageToNVS();
 
@@ -83,6 +86,7 @@ static void checkPowerKey() {
     if (s_pwrClickCount == 1 && (millis() - s_lastPwrPressMs > DOUBLE_CLICK_WINDOW_MS)) {
         s_pwrClickCount = 0;
         Serial.println("\n[Power] Single-click detected on G27 (POWER) -> Restarting ESP32...");
+        setInDeepSleepCycle(false);
         flushStorageToNVS();
         ESP.restart();
     }
@@ -97,30 +101,40 @@ static void renderCurrentPage(const EnvRecord &rec, const char *timeStr, bool fu
 }
 
 void setup() {
+    // 检查唤醒原因与休眠周期状态：区别对待冷启动、定时器静默唤醒与按键交互唤醒
+    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+    esp_reset_reason_t rstReason = esp_reset_reason();
+    bool isTimerWake = (wakeCause == ESP_SLEEP_WAKEUP_TIMER);
+    bool isButtonWake = (wakeCause == ESP_SLEEP_WAKEUP_EXT0 || wakeCause == ESP_SLEEP_WAKEUP_EXT1);
+    bool isWakeFromSleep = isTimerWake || isButtonWake || (rstReason == ESP_RST_DEEPSLEEP) || isInDeepSleepCycle();
+
     // 1. 硬件初始化 & 供电引脚持续拉高 (GPIO 12)
-    M5.begin(true, true, false);
+    if (isWakeFromSleep) {
+        // 核心修复：睡眠唤醒时传入 false，彻底绕过 M5Ink.begin() 内部 hardcoded 的 M5GFX::clear(TFT_BLACK) 暴力全黑闪烁！
+        M5.begin(false, true, false);
+        M5.M5Ink.M5GFX::begin();
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
+        M5.M5Ink.invertDisplay(false);
+    } else {
+        // 冷启动开机：全量硬件初始化，正向显示白底黑字
+        M5.begin(true, true, false);
+        M5.M5Ink.invertDisplay(false);
+    }
+
     rtc_gpio_hold_dis(GPIO_NUM_12);            // 解除上一次深度睡眠的 RTC 硬件锁存
     gpio_hold_dis((gpio_num_t)POWER_HOLD_PIN); // 解除数字 GPIO 锁存
     pinMode(POWER_HOLD_PIN, OUTPUT);
     digitalWrite(POWER_HOLD_PIN, HIGH);
     M5.rtc.clearIRQ();                          // 清除 BM8563 硬件 RTC 中断标志
+    M5.rtc.disableIRQ();
 
     // 彻底熄灭 CoreInk 绿色外设指示灯 (GPIO 10 是低电平点亮，输出 HIGH 熄灭)
     pinMode(LED_EXT_PIN, OUTPUT);
     digitalWrite(LED_EXT_PIN, HIGH);
 
-    // 关键修正：关闭官方库默认的硬件反相，恢复真正的正相白底黑字显示！
-    M5.M5Ink.invertDisplay(false);
-
     Serial.println("\n========================================");
     Serial.println("  CoreInk Humidor Environmental Monitor  ");
     Serial.println("========================================");
-
-    // 检查唤醒原因：区别对待冷启动、定时器唤醒与按键唤醒
-    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
-    bool isTimerWake = (wakeCause == ESP_SLEEP_WAKEUP_TIMER);
-    bool isButtonWake = (wakeCause == ESP_SLEEP_WAKEUP_EXT0 || wakeCause == ESP_SLEEP_WAKEUP_EXT1);
-    bool isWakeFromSleep = isTimerWake || isButtonWake;
 
     // 2. 初始化持久化存储 (NVS 恢复整点，RTC 内存恢复高频实时数据)
     initStorage();
@@ -134,7 +148,8 @@ void setup() {
         syncNtpTime(8000);
         delay(600); // 确保开机画面物理电荷泵驱动彻底沉淀，防止与仪表盘帧冲突
     } else {
-        Serial.printf("[RTC Boot] Woke from deep sleep (cause=%d), skipping Wi-Fi NTP.\n", (int)wakeCause);
+        Serial.printf("[RTC Boot] Woke from deep sleep (cause=%d, rst=%d), skipping Wi-Fi NTP.\n",
+                      (int)wakeCause, (int)rstReason);
     }
 
     // 5. 校验并打印当前 BM8563 硬件 RTC 时间
@@ -143,8 +158,8 @@ void setup() {
     M5.rtc.GetTime(&initTime);
     M5.rtc.GetDate(&initDate);
     Serial.printf("[RTC Boot Time] %04d-%02d-%02d %02d:%02d:%02d\n",
-                  initDate.Year, initDate.Month, initDate.Date,
-                  initTime.Hours, initTime.Minutes, initTime.Seconds);
+                   initDate.Year, initDate.Month, initDate.Date,
+                   initTime.Hours, initTime.Minutes, initTime.Seconds);
 
     bool isHourRolledOver = (s_lastHour >= 0 && initTime.Hours != s_lastHour);
 
@@ -180,6 +195,13 @@ void setup() {
     char timeStr[32];
     getTimeString(timeStr, sizeof(timeStr));
 
+    // 状态栏休眠标志设置：若是定时器静默唤醒，保持 zZ；若是按键唤醒或冷启动，清除 zZ
+    if (isTimerWake || (isWakeFromSleep && !isButtonWake)) {
+        setSleepIndicator(true);
+    } else {
+        setSleepIndicator(false);
+    }
+
     // 核心优化：
     // - 冷启动上电：全刷清除残影 (fullRefresh = true)
     // - 周期唤醒 / 按键唤醒：快速局部无闪刷新 (fullRefresh = false)，绝不闪黑白全屏！
@@ -190,7 +212,8 @@ void setup() {
 
     // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时器静默周期唤醒下：
     // 数据刷新完毕后，延时等待墨水屏刷屏完成，安然进入下一轮休眠
-    if (isTimerWake && (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
+    if ((isTimerWake || !isButtonWake) && isWakeFromSleep &&
+        (getPowerMode() == PWR_MODE_ECO || getPowerMode() == PWR_MODE_MANUAL)) {
         Serial.println("[Eco] Periodic timer sample rendered smoothly. Returning to Deep Sleep immediately.");
         delay(400);
         executePowerSleep(true);

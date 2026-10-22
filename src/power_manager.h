@@ -30,3 +30,9 @@ void executePowerSleep(bool hasRenderedData = false);
  * @brief 通知电源管理器当前有用户按键活动，刷新活跃窗口防止误休眠
  */
 void notifyUserActivity();
+
+/**
+ * @brief 标记与检查是否处于深度休眠循环中 (用于唤醒时免黑闪无感局刷与跳过Wi-Fi)
+ */
+void setInDeepSleepCycle(bool inCycle);
+bool isInDeepSleepCycle();

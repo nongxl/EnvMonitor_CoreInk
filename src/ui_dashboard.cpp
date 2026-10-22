@@ -162,7 +162,7 @@ void initDashboard() {
     s_sprite.clear();
 }
 
-static bool s_isSleeping = false;
+RTC_DATA_ATTR static bool s_isSleeping = false;
 
 void setSleepIndicator(bool sleeping) {
     s_isSleeping = sleeping;

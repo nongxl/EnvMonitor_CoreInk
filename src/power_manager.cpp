@@ -14,6 +14,47 @@ static bool s_menuOpen = false;
 static uint8_t s_menuSelected = 1;
 static Preferences s_prefs;
 
+// RTC 内存保持深度休眠循环标记 (跨 Deep Sleep 重启不丢失，用于免黑闪无感局刷与跳过Wi-Fi)
+RTC_DATA_ATTR static bool s_inDeepSleepCycle = false;
+
+void setInDeepSleepCycle(bool inCycle) {
+    s_inDeepSleepCycle = inCycle;
+}
+
+bool isInDeepSleepCycle() {
+    return s_inDeepSleepCycle;
+}
+
+static void applyPowerModeParams(PowerMode mode, bool verbose) {
+    if (verbose) {
+        Serial.printf("[Power] Set power mode to: %d (%s)\n", (int)mode, getPowerModeName(mode));
+    }
+
+    uint32_t targetCpuMhz = 80;
+    if (mode == PWR_MODE_REALTIME) {
+        targetCpuMhz = 240;
+    }
+
+    if (getCpuFrequencyMhz() != targetCpuMhz) {
+        Serial.flush();
+        setCpuFrequencyMhz(targetCpuMhz);
+        Serial.updateBaudRate(115200);
+    }
+
+    switch (mode) {
+        case PWR_MODE_REALTIME:
+            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
+            break;
+        case PWR_MODE_BALANCED:
+        case PWR_MODE_ECO:
+        case PWR_MODE_MANUAL:
+            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
+            break;
+        default:
+            break;
+    }
+}
+
 void initPowerManager() {
     s_prefs.begin("power_mgr", false);
     uint8_t saved = s_prefs.getUChar("pwr_mode", (uint8_t)PWR_MODE_BALANCED);
@@ -23,7 +64,9 @@ void initPowerManager() {
     s_powerMode = (PowerMode)saved;
     s_menuSelected = saved;
 
-    setPowerMode(s_powerMode);
+    // 唤醒或开机时仅应用对应 CPU 主频与采样率，绝不重复写入 NVS flash 损耗寿命与输出乱码
+    bool inSleepCycle = isInDeepSleepCycle();
+    applyPowerModeParams(s_powerMode, !inSleepCycle);
 }
 
 PowerMode getPowerMode() {
@@ -43,27 +86,10 @@ const char* getPowerModeName(PowerMode mode) {
 void setPowerMode(PowerMode mode) {
     s_powerMode = mode;
     s_prefs.putUChar("pwr_mode", (uint8_t)mode);
-    Serial.printf("[Power] Set power mode to: %d (%s)\n", (int)mode, getPowerModeName(mode));
+    applyPowerModeParams(mode, true);
 
-    switch (mode) {
-        case PWR_MODE_REALTIME:
-            setCpuFrequencyMhz(240);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
-            break;
-        case PWR_MODE_BALANCED:
-            setCpuFrequencyMhz(80);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
-            break;
-        case PWR_MODE_ECO:
-            setCpuFrequencyMhz(80);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
-            break;
-        case PWR_MODE_MANUAL:
-            setCpuFrequencyMhz(80);
-            setBsecSampleRate(BSEC_SAMPLE_RATE_LP);
-            break;
-        default:
-            break;
+    if (mode == PWR_MODE_REALTIME || mode == PWR_MODE_BALANCED) {
+        setInDeepSleepCycle(false);
     }
 }
 
@@ -158,6 +184,7 @@ void executePowerSleep(bool hasRenderedData) {
 
             // 无操作超过 30 秒，立即进入 10 分钟 Deep-Sleep
             Serial.println("[Power] Eco Mode: Entering 10-min Deep Sleep...");
+            setInDeepSleepCycle(true);
             saveBsecState();
             flushStorageToNVS();
 
@@ -172,9 +199,9 @@ void executePowerSleep(bool hasRenderedData) {
             digitalWrite(10, HIGH);
             M5.M5Ink.deepSleep();
 
-            // 1. 设置片外独立硬件 RTC 芯片 (BM8563) 10 分钟定时闹钟 (硬件级双重保险唤醒)
+            // 1. 清除并禁用片外独立硬件 RTC 芯片 (BM8563) 定时中断，防止误触发硬件电源回路复位
             M5.rtc.clearIRQ();
-            M5.rtc.SetAlarmIRQ(600);
+            M5.rtc.disableIRQ();
 
             // 2. 关键：使用 RTC IO 控制器在 Deep Sleep 期间硬件锁存 GPIO 12 为高电平，保持 3.3V 电池供电不断电！
             rtc_gpio_init(GPIO_NUM_12);
@@ -203,6 +230,7 @@ void executePowerSleep(bool hasRenderedData) {
             }
 
             Serial.println("[Power] Manual Mode: Entering Deep Sleep until key press...");
+            setInDeepSleepCycle(true);
             saveBsecState();
             flushStorageToNVS();
 
@@ -215,6 +243,9 @@ void executePowerSleep(bool hasRenderedData) {
             pinMode(10, OUTPUT);
             digitalWrite(10, HIGH);
             M5.M5Ink.deepSleep();
+
+            M5.rtc.clearIRQ();
+            M5.rtc.disableIRQ();
 
             // 使用 RTC IO 控制器硬件锁存电源引脚 (GPIO 12)
             rtc_gpio_init(GPIO_NUM_12);
