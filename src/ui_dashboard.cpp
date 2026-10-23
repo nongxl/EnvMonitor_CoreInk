@@ -4,7 +4,6 @@
 #include "battery.h"
 #include "sensor_bsec.h"
 #include "img_churchill.h"
-#include "epd_wake_helper.h"
 
 static Ink_Sprite s_sprite(&M5.M5Ink);
 static bool s_spriteCreated = false;
@@ -194,7 +193,7 @@ static void drawStatusBar(const char *timeStr) {
 
     // 若处于 Deep Sleep 休眠状态，在时间右侧显示黑色 zZ 标记 (固定位于 X:143，与时间文字及电池保持黄金留白)
     if (s_isSleeping) {
-        s_sprite.drawString(143, 2, "zZ");
+        s_sprite.drawString(140, 2, "zZ");
     }
 
     int batPct = getBatteryPercentage();
@@ -593,7 +592,11 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 5. 推送到电子墨水屏 (高质量全局全刷或局部刷新)
     // ==========================================
-    configureEpdWakeMode(fullRefresh);
+    if (fullRefresh) {
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
+    } else {
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
+    }
     s_sprite.pushSprite();
 }
 
@@ -741,7 +744,11 @@ void renderAirLab(const EnvRecord &current, const char *timeStr, bool fullRefres
     s_sprite.drawString(6, 186, runInBuf);
 
     // 5. 推送到屏幕
-    configureEpdWakeMode(fullRefresh);
+    if (fullRefresh) {
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
+    } else {
+        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
+    }
     s_sprite.pushSprite();
 }
 
