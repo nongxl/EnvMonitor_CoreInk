@@ -180,28 +180,68 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
     if (!outArray || maxLen == 0) return 0;
 
     uint16_t collected = 0;
+    bool hasLeftPrev = false;
+    EnvRecord leftPrev;
+    bool hasRightNext = false;
+    EnvRecord rightNext;
 
-    // 1. 从 NVS 历史整点中按时序筛选
+    // 1. 从 NVS 历史整点中按时序筛选，同时捕获视窗外最近的前驱/后继边界点
     static EnvRecord hourly[MAX_HISTORY_RECORDS];
     uint16_t hCount = getHistoryRecords(hourly, MAX_HISTORY_RECORDS);
-    for (uint16_t i = 0; i < hCount && collected < maxLen; ++i) {
+    for (uint16_t i = 0; i < hCount; ++i) {
         if (hourly[i].timestamp >= windowStart && hourly[i].timestamp <= windowEnd) {
-            outArray[collected++] = hourly[i];
-        }
-    }
-
-    // 2. 从 RTC 保持的高频采样缓冲中筛选 (全部收集，不提前做错误的比对)
-    if (s_recentCount > 0) {
-        uint16_t startIdx = (s_recentHead + MAX_RECENT_RECORDS - s_recentCount) % MAX_RECENT_RECORDS;
-        for (uint16_t i = 0; i < s_recentCount && collected < maxLen; ++i) {
-            const EnvRecord &r = s_recent[(startIdx + i) % MAX_RECENT_RECORDS];
-            if (r.timestamp >= windowStart && r.timestamp <= windowEnd) {
-                outArray[collected++] = r;
+            if (collected < maxLen - 2) {
+                outArray[collected++] = hourly[i];
+            }
+        } else if (hourly[i].timestamp < windowStart) {
+            if (!hasLeftPrev || hourly[i].timestamp > leftPrev.timestamp) {
+                leftPrev = hourly[i];
+                hasLeftPrev = true;
+            }
+        } else if (hourly[i].timestamp > windowEnd) {
+            if (!hasRightNext || hourly[i].timestamp < rightNext.timestamp) {
+                rightNext = hourly[i];
+                hasRightNext = true;
             }
         }
     }
 
-    if (collected == 0) return 0;
+    // 2. 从 RTC 保持的高频采样缓冲中筛选，同时补充捕获更贴近的边界点
+    if (s_recentCount > 0) {
+        uint16_t startIdx = (s_recentHead + MAX_RECENT_RECORDS - s_recentCount) % MAX_RECENT_RECORDS;
+        for (uint16_t i = 0; i < s_recentCount; ++i) {
+            const EnvRecord &r = s_recent[(startIdx + i) % MAX_RECENT_RECORDS];
+            if (r.timestamp >= windowStart && r.timestamp <= windowEnd) {
+                if (collected < maxLen - 2) {
+                    outArray[collected++] = r;
+                }
+            } else if (r.timestamp < windowStart) {
+                if (!hasLeftPrev || r.timestamp > leftPrev.timestamp) {
+                    leftPrev = r;
+                    hasLeftPrev = true;
+                }
+            } else if (r.timestamp > windowEnd) {
+                if (!hasRightNext || r.timestamp < rightNext.timestamp) {
+                    rightNext = r;
+                    hasRightNext = true;
+                }
+            }
+        }
+    }
+
+    // 若视窗内完全无采样点，但视窗外有前驱点，以该状态生成贯穿全屏的水平参考线
+    if (collected == 0) {
+        if (hasLeftPrev) {
+            EnvRecord aLeft = leftPrev;
+            aLeft.timestamp = windowStart;
+            EnvRecord aRight = leftPrev;
+            aRight.timestamp = windowEnd;
+            outArray[0] = aLeft;
+            outArray[1] = aRight;
+            return 2;
+        }
+        return 0;
+    }
 
     // 3. 严格按时间戳单调升序排序
     for (uint16_t i = 0; i < collected - 1; ++i) {
@@ -220,6 +260,38 @@ uint16_t getRecordsInWindow(EnvRecord *outArray, uint16_t maxLen, uint32_t windo
         if (outArray[i].timestamp > outArray[uniqueCount - 1].timestamp + 3) {
             outArray[uniqueCount++] = outArray[i];
         }
+    }
+
+    // 5. 左边界平滑锚定 (核心修复：彻底消除 1h / 10m 等微观视窗左侧空白断层)
+    if (outArray[0].timestamp > windowStart && uniqueCount < maxLen) {
+        EnvRecord leftAnchor = outArray[0];
+        leftAnchor.timestamp = windowStart;
+        if (hasLeftPrev && (outArray[0].timestamp > leftPrev.timestamp)) {
+            float span = (float)(outArray[0].timestamp - leftPrev.timestamp);
+            float ratio = (float)(windowStart - leftPrev.timestamp) / span;
+            leftAnchor.temp = leftPrev.temp + ratio * (outArray[0].temp - leftPrev.temp);
+            leftAnchor.humi = leftPrev.humi + ratio * (outArray[0].humi - leftPrev.humi);
+            leftAnchor.press = leftPrev.press + ratio * (outArray[0].press - leftPrev.press);
+        }
+        for (int i = uniqueCount; i > 0; --i) {
+            outArray[i] = outArray[i - 1];
+        }
+        outArray[0] = leftAnchor;
+        uniqueCount++;
+    }
+
+    // 6. 右边界闭环锚定 (将折线稳稳闭环连至右侧坐标轴)
+    if (outArray[uniqueCount - 1].timestamp < windowEnd && uniqueCount < maxLen) {
+        EnvRecord rightAnchor = outArray[uniqueCount - 1];
+        rightAnchor.timestamp = windowEnd;
+        if (hasRightNext && (rightNext.timestamp > outArray[uniqueCount - 1].timestamp)) {
+            float span = (float)(rightNext.timestamp - outArray[uniqueCount - 1].timestamp);
+            float ratio = (float)(windowEnd - outArray[uniqueCount - 1].timestamp) / span;
+            rightAnchor.temp = outArray[uniqueCount - 1].temp + ratio * (rightNext.temp - outArray[uniqueCount - 1].temp);
+            rightAnchor.humi = outArray[uniqueCount - 1].humi + ratio * (rightNext.humi - outArray[uniqueCount - 1].humi);
+            rightAnchor.press = outArray[uniqueCount - 1].press + ratio * (rightNext.press - outArray[uniqueCount - 1].press);
+        }
+        outArray[uniqueCount++] = rightAnchor;
     }
 
     return uniqueCount;

@@ -357,6 +357,11 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
         s_chartPoints[0] = current;
         s_chartPoints[0].timestamp = nowSec;
         count = 1;
+    } else if (count > 0 && hasValidData && s_panOffsetSec == 0) {
+        // 当前视窗为实时模式时，确保折线末端严格对齐当前实时测得的温湿度数值
+        s_chartPoints[count - 1].temp = current.temp;
+        s_chartPoints[count - 1].humi = current.humi;
+        s_chartPoints[count - 1].press = current.press;
     }
 
     // 2. 统计当前视窗内线条的最高与最低点 (用于纵轴中间动态刻度展示)
