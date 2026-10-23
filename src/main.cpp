@@ -11,9 +11,10 @@
 #include "power_manager.h"
 #include "epd_wake_helper.h"
 
-// 计时与调度变量 (RTC 内存保持，深度休眠唤醒不丢失整点时序)
+// 计时与调度变量 (RTC 内存保持，深度休眠唤醒不丢失整点与每日时序)
 RTC_DATA_ATTR static int8_t s_lastHour = -1;
 RTC_DATA_ATTR static int8_t s_lastMinute = -1;
+RTC_DATA_ATTR static int8_t s_lastCleanDay = -1;
 static uint32_t s_lastHourlySaveMs = 0;
 static bool s_firstDataRendered = false;
 
@@ -206,11 +207,21 @@ void setup() {
         setSleepIndicator(false);
     }
 
-    // 核心智能刷新策略：
-    // - 冷启动首次开机 / 整点 (每小时第0分或跨小时整点保存)：执行一次全局保洁全刷 (fullRefresh = true)，彻底消除微胶囊累积残影
-    // - 周期唤醒 (每10分钟静默) / 用户按键交互唤醒：执行 300ms 极速局部差分无闪刷新 (fullRefresh = false)，彻底消除黑白闪屏并大幅省电！
-    bool isHourlyClean = !isWakeFromSleep || isHourRolledOver || (initTime.Minutes == 0);
-    renderCurrentPage(initialRec, timeStr, isHourlyClean);
+    // 核心智能保洁策略：
+    // - 冷启动首次开机：执行一次全刷 (消除开机等待与建立白底)
+    // - 每日保洁 (每24小时一次，每天0点执行)：执行一次全局全刷 (彻底重置微胶囊电荷消除残影)
+    // - 其余所有时刻 (每10分钟静默周期唤醒与用户交互唤醒)：全部执行 300ms 极速局部差分无闪刷新，极致省电！
+    bool isDailyClean = false;
+    if (!isWakeFromSleep) {
+        isDailyClean = true;
+        s_lastCleanDay = initDate.Date;
+    } else if (initTime.Hours == 0 && s_lastCleanDay != initDate.Date) {
+        isDailyClean = true;
+        s_lastCleanDay = initDate.Date;
+        Serial.printf("[EPD] Daily maintenance full refresh executed at %02d:%02d.\n", initTime.Hours, initTime.Minutes);
+    }
+
+    renderCurrentPage(initialRec, timeStr, isDailyClean);
     M5.M5Ink.waitDisplay(); // 确保墨水屏电荷泵完全将画面写入
 
     // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
