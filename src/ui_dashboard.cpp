@@ -4,6 +4,7 @@
 #include "battery.h"
 #include "sensor_bsec.h"
 #include "img_churchill.h"
+#include "epd_wake_helper.h"
 
 static Ink_Sprite s_sprite(&M5.M5Ink);
 static bool s_spriteCreated = false;
@@ -592,11 +593,7 @@ void renderDashboard(const EnvRecord &current, const char *timeStr, bool fullRef
     // ==========================================
     // 5. 推送到电子墨水屏 (高质量全局全刷或局部刷新)
     // ==========================================
-    if (fullRefresh) {
-        M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
-    } else {
-        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
-    }
+    configureEpdWakeMode(fullRefresh);
     s_sprite.pushSprite();
 }
 
@@ -744,11 +741,7 @@ void renderAirLab(const EnvRecord &current, const char *timeStr, bool fullRefres
     s_sprite.drawString(6, 186, runInBuf);
 
     // 5. 推送到屏幕
-    if (fullRefresh) {
-        M5.M5Ink.setEpdMode(epd_mode_t::epd_quality);
-    } else {
-        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
-    }
+    configureEpdWakeMode(fullRefresh);
     s_sprite.pushSprite();
 }
 

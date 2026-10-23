@@ -8,6 +8,7 @@
 #include "sensor_bsec.h"
 #include "storage.h"
 #include "ui_dashboard.h"
+#include "epd_wake_helper.h"
 
 static PowerMode s_powerMode = PWR_MODE_BALANCED;
 static bool s_menuOpen = false;
@@ -206,11 +207,13 @@ void executePowerSleep(bool forceSleep) {
             M5.rtc.clearIRQ();
             M5.rtc.disableIRQ();
 
-            // 2. 关键：使用 RTC IO 控制器在 Deep Sleep 期间硬件锁存 GPIO 12 为高电平，保持 3.3V 电池供电不断电！
+            // 2. 关键：使用 RTC IO 控制器在 Deep Sleep 期间硬件锁存 GPIO 12 与 GPIO 0 (RST)！
+            // 保持 3.3V 电池供电不断电，且彻底防止 RST 复位导致墨水屏内部显存数据清空！
             rtc_gpio_init(GPIO_NUM_12);
             rtc_gpio_set_direction(GPIO_NUM_12, RTC_GPIO_MODE_OUTPUT_ONLY);
             rtc_gpio_set_level(GPIO_NUM_12, 1);
             rtc_gpio_hold_en(GPIO_NUM_12);
+            epdLockResetPin();
             gpio_deep_sleep_hold_en();
             delay(20);
 
@@ -250,11 +253,12 @@ void executePowerSleep(bool forceSleep) {
             M5.rtc.clearIRQ();
             M5.rtc.disableIRQ();
 
-            // 使用 RTC IO 控制器硬件锁存电源引脚 (GPIO 12)
+            // 使用 RTC IO 控制器硬件锁存电源引脚 (GPIO 12) 与复位引脚 (GPIO 0)
             rtc_gpio_init(GPIO_NUM_12);
             rtc_gpio_set_direction(GPIO_NUM_12, RTC_GPIO_MODE_OUTPUT_ONLY);
             rtc_gpio_set_level(GPIO_NUM_12, 1);
             rtc_gpio_hold_en(GPIO_NUM_12);
+            epdLockResetPin();
             gpio_deep_sleep_hold_en();
             delay(20);
 

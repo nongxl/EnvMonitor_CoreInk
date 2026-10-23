@@ -9,6 +9,7 @@
 #include "ui_dashboard.h"
 #include "battery.h"
 #include "power_manager.h"
+#include "epd_wake_helper.h"
 
 // 计时与调度变量 (RTC 内存保持，深度休眠唤醒不丢失整点时序)
 RTC_DATA_ATTR static int8_t s_lastHour = -1;
@@ -110,12 +111,13 @@ void setup() {
 
     // 1. 硬件初始化 & 供电引脚持续拉高 (GPIO 12)
     if (isWakeFromSleep) {
-        // 核心修复：睡眠唤醒时跳过 InkEnable（避免 clear(TFT_BLACK) 全黑闪屏），
-        // 并通过 init_without_reset(false) 自动检测面板型号(D67/M09)并平滑建立驱动管线，彻底消除黑白闪屏与画面冻结！
+        // 核心修复：睡眠唤醒时跳过 InkEnable（避免 clear(TFT_BLACK) 全黑闪屏）
+        // 关键防护：此时 GPIO 0 仍处于硬件锁存状态，M5GFX autodetect 内部的 _pin_reset(0) 无法复位屏幕硬件！
+        // 墨水屏控制器内部 SRAM 显存数据完美保留，为局部差分无闪刷新提供完备的历史帧对比！
         M5.begin(false, true, false);
         M5.M5Ink.init_without_reset(false);
+        epdUnlockResetPin(); // 驱动管线建立完毕后解除硬件锁存
         M5.M5Ink.powerHVON();
-        M5.M5Ink.setEpdMode(epd_mode_t::epd_fast);
         M5.M5Ink.invertDisplay(false);
     } else {
         // 冷启动开机：全量硬件初始化，正向显示白底黑字
@@ -204,10 +206,11 @@ void setup() {
         setSleepIndicator(false);
     }
 
-    // 核心优化：
-    // - 冷启动上电：全刷清除残影 (fullRefresh = true)
-    // - 周期唤醒 / 按键唤醒：快速局部无闪刷新 (fullRefresh = false)，绝不闪黑白全屏！
-    renderCurrentPage(initialRec, timeStr, !isWakeFromSleep);
+    // 核心智能刷新策略：
+    // - 冷启动首次开机 / 整点 (每小时第0分或跨小时整点保存)：执行一次全局保洁全刷 (fullRefresh = true)，彻底消除微胶囊累积残影
+    // - 周期唤醒 (每10分钟静默) / 用户按键交互唤醒：执行 300ms 极速局部差分无闪刷新 (fullRefresh = false)，彻底消除黑白闪屏并大幅省电！
+    bool isHourlyClean = !isWakeFromSleep || isHourRolledOver || (initTime.Minutes == 0);
+    renderCurrentPage(initialRec, timeStr, isHourlyClean);
     M5.M5Ink.waitDisplay(); // 确保墨水屏电荷泵完全将画面写入
 
     // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
