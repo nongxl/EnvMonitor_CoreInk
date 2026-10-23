@@ -145,7 +145,10 @@ void setup() {
     // 3. 初始化 200x200 E-Ink 仪表盘
     initDashboard();
 
-    // 4. Wi-Fi NTP 授时 (仅在冷启动首次开机时进行，休眠唤醒直接使用硬件 RTC，彻底消除等待与电量浪费)
+    // 4. 初始化电源管理器 (读取 NVS 功耗模式、设定 CPU 主频/采样率，并自适应匹配折线图缩放)
+    initPowerManager();
+
+    // 5. Wi-Fi NTP 授时 (仅在冷启动首次开机时进行，休眠唤醒直接使用硬件 RTC，彻底消除等待与电量浪费)
     if (!isWakeFromSleep) {
         renderSplashScreen("Connecting Wi-Fi...");
         syncNtpTime(8000);
@@ -210,9 +213,6 @@ void setup() {
     // - 周期唤醒 / 按键唤醒：快速局部刷新 (fullRefresh = false)，保证画面正常清晰无反色
     renderCurrentPage(initialRec, timeStr, !isWakeFromSleep);
     M5.M5Ink.waitDisplay(); // 确保墨水屏电荷泵完全将画面写入
-
-    // 8. 初始化电源管理器 (读取 NVS 功耗模式并应用对应 CPU 主频与采样率)
-    initPowerManager();
 
     // 如果处于长效续航 (Eco ULP) 或按需采样模式，并在定时器静默周期唤醒下：
     // 数据刷新完毕后，强制立即进入下一轮休眠，避免等待30秒

@@ -75,6 +75,39 @@ ChartMode chartGetMode() {
     return s_chartMode;
 }
 
+void chartSetZoomIndex(int zoomIdx, bool resetPan) {
+    if (zoomIdx >= 0 && zoomIdx < ZOOM_COUNT) {
+        s_zoomIdx = zoomIdx;
+        if (resetPan) {
+            s_panOffsetSec = 0;
+        }
+    }
+}
+
+void chartApplyDefaultZoomForPowerMode(uint8_t powerMode) {
+    int defaultZoom = 1; // 默认 10m
+    switch (powerMode) {
+        case 0: // PWR_MODE_REALTIME: 3秒高频采样，5m最适观察即时微动态
+            defaultZoom = 0; // "5m"
+            break;
+        case 1: // PWR_MODE_BALANCED: 1分钟采样，10m均衡查看近况
+            defaultZoom = 1; // "10m"
+            break;
+        case 2: // PWR_MODE_ECO: 10分钟休眠采样，6h呈现半天趋势宏观视图
+            defaultZoom = 3; // "6h"
+            break;
+        case 3: // PWR_MODE_MANUAL (On-Demand): 每次按键测1次，5m观察当次测量
+            defaultZoom = 0; // "5m"
+            break;
+        default:
+            defaultZoom = 1;
+            break;
+    }
+    chartSetZoomIndex(defaultZoom, true);
+    Serial.printf("[Chart] Power Mode %d -> Adapted zoom to '%s' (idx=%d).\n",
+                  (int)powerMode, ZOOM_LEVELS[defaultZoom].name, defaultZoom);
+}
+
 RTC_DATA_ATTR static ActivePage s_activePage = PAGE_DASHBOARD;
 
 void toggleActivePage() {
@@ -193,7 +226,7 @@ static void drawStatusBar(const char *timeStr) {
 
     // 若处于 Deep Sleep 休眠状态，在时间右侧显示黑色 zZ 标记 (固定位于 X:143，与时间文字及电池保持黄金留白)
     if (s_isSleeping) {
-        s_sprite.drawString(140, 2, "zZ");
+        s_sprite.drawString(136, 2, "zZ");
     }
 
     int batPct = getBatteryPercentage();

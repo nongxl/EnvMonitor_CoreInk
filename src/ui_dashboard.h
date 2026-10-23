@@ -53,6 +53,22 @@ void chartHandleDown();
 ChartMode chartGetMode();
 
 /**
+ * @brief 设置折线图缩放级别 (0: 5m, 1: 10m, 2: 1h, 3: 6h, 4: 24h, ...)
+ * @param zoomIdx 缩放级别索引
+ * @param resetPan 是否重置平移偏移到当前 (Now)
+ */
+void chartSetZoomIndex(int zoomIdx, bool resetPan = true);
+
+/**
+ * @brief 根据电源模式自适应设置默认图表缩放级别
+ * - Realtime (3s)  -> 5m (索引 0)
+ * - Balanced (1m)  -> 10m (索引 1)
+ * - Eco ULP (10m)  -> 6h (索引 3)
+ * - On-Demand (G38)-> 5m (索引 0)
+ */
+void chartApplyDefaultZoomForPowerMode(uint8_t powerMode);
+
+/**
  * @brief 切换当前活动显示页面 (G5 / EXT 按键触发)
  */
 void toggleActivePage();

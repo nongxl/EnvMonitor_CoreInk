@@ -67,6 +67,11 @@ void initPowerManager() {
     // 唤醒或开机时仅应用对应 CPU 主频与采样率，绝不重复写入 NVS flash 损耗寿命与输出乱码
     bool inSleepCycle = isInDeepSleepCycle();
     applyPowerModeParams(s_powerMode, !inSleepCycle);
+
+    // 冷启动首次开机：自动将折线图缩放对齐该模式对应的默认值 (休眠唤醒保持用户手动微调)
+    if (!inSleepCycle) {
+        chartApplyDefaultZoomForPowerMode((uint8_t)s_powerMode);
+    }
 }
 
 PowerMode getPowerMode() {
@@ -87,6 +92,7 @@ void setPowerMode(PowerMode mode) {
     s_powerMode = mode;
     s_prefs.putUChar("pwr_mode", (uint8_t)mode);
     applyPowerModeParams(mode, true);
+    chartApplyDefaultZoomForPowerMode((uint8_t)mode);
 
     if (mode == PWR_MODE_REALTIME || mode == PWR_MODE_BALANCED) {
         setInDeepSleepCycle(false);
