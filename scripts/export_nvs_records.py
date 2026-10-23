@@ -143,6 +143,7 @@ def parse_nvs_data(raw_data):
                     if key == 'env_data':
                         target_ns_id = ns_id
                 
+                span = max(1, span)
                 entry_idx += span
                 offset += span * 32
             else:
@@ -190,6 +191,7 @@ def parse_nvs_data(raw_data):
                             else: # 单页 BLOB
                                 single_blobs.append((seq, entry_idx, payload))
 
+                span = max(1, span)
                 entry_idx += span
                 offset += span * 32
             else:
