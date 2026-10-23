@@ -186,8 +186,9 @@ def parse_nvs_data(raw_data):
                         elif dtype == 0x42: # BLOB DATA
                             blob_size, = struct.unpack('<H', data_field[:2])
                             payload = page[offset+32 : offset + 32 + blob_size]
-                            if chunk_idx != 255: # 多页分块
-                                blob_chunks[chunk_idx] = payload
+                            if chunk_idx != 255: # 多页分块 (ESP-IDF chunk 索引以 0x80 为基数)
+                                norm_chunk = chunk_idx & 0x7F
+                                blob_chunks[norm_chunk] = payload
                             else: # 单页 BLOB
                                 single_blobs.append((seq, entry_idx, payload))
 
@@ -207,8 +208,11 @@ def parse_nvs_data(raw_data):
         for c in range(chunk_start, chunk_start + chunk_count):
             if c in blob_chunks:
                 assembled += blob_chunks[c]
+                if len(assembled) >= total_size:
+                    break
             else:
-                print(f"      [警告] 缺少分块 Chunk #{c}")
+                if len(assembled) < total_size:
+                    print(f"      [警告] 缺少分块 Chunk #{c}")
         final_blob = assembled[:total_size]
     elif single_blobs:
         # 取最新的一份单页 BLOB
